@@ -17,9 +17,6 @@ pip install pydobiss
 ```python
 
 import asyncio
-import sys
-sys.path.append('.')
-
 from time import sleep
 import dobissapi
 
