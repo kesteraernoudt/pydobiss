@@ -29,34 +29,48 @@ url = 'http://<ip>/api/local/'
 ws_url = 'ws://<ip>/sockets/api'
 
 dobiss = dobissapi.DobissAPI(secret, url, ws_url)
-entities = dobiss.discovery()
-dobiss.update_all()
 
-# check if caching works
-entities = dobiss.discovery()
+async def main():
 
-# list scenarios
-scenarios = dobiss.get_devices_by_type(dobissapi.DobissScenario)
-for e in scenarios:
-	print("{}: {}".format(e.object_id, e.json))
+	entities = dobiss.discovery()
+	await dobiss.update_all()
 
-def get_entity(entities, name):
-	for e in entities:
-		if e.name == name:
-			return e
+	# check if caching works
+	entities = dobiss.discovery()
 
-# test updating and changing entities
-get_entity(entities, "Mancave").update()
-get_entity(entities, "Mancave").toggle()
-sleep(2)
-get_entity(entities, "Mancave").toggle()
+	# list scenarios
+	scenarios = dobiss.get_devices_by_type(dobissapi.DobissScenario)
+	for e in scenarios:
+		print("{}: {}".format(e.object_id, e.json))
+
+	def get_entity(entities, name):
+		for e in entities:
+			if e.name == name:
+				return e
+
+	# test updating and changing entities
+	#get_entity(entities, "Mancave").update()
+	#get_entity(entities, "Mancave").toggle()
+	#sleep(2)
+	#get_entity(entities, "Mancave").toggle()
+
+	#get_entity(entities, "Mancave").update()
+	#get_entity(entities, "Mancave").turn_on()
+	#sleep(2)
+	#get_entity(entities, "Mancave").turn_off()
+
+	def my_callback():
+		print("callback happened")
+	
+	get_entity(entities, "Mancave").register_callback(my_callback)
 
 try:
-    loop = asyncio.get_event_loop()
-    loop.run_until_complete(dobiss.dobiss_monitor())
-    loop.run_forever()
+	loop = asyncio.get_event_loop()
+	loop.create_task(dobiss.dobiss_monitor())
+	loop.create_task(main())
+	loop.run_forever()
 except KeyboardInterrupt:
-    print("Exiting")
+	print("Exiting")
 ```
 
 ## Author

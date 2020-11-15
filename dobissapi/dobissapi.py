@@ -58,6 +58,7 @@ class DobissEntity:
         self._object_id = "dobissid_{}_{}".format(self._address, self._channel)
         self._value = None
         self._dobiss = dobiss
+        self._callbacks = set()
 
     @property
     def name(self):
@@ -114,24 +115,38 @@ class DobissEntity:
         """Return true if entity is on."""
         return self._value != None and self._value > 0
 
-    def push(self, val):
+    def register_callback(self, callback):
+        """Register callback, called when changes state."""
+        self._callbacks.add(callback)
+
+    def remove_callback(self, callback):
+        """Remove previously registered callback."""
+        self._callbacks.discard(callback)
+
+    async def publish_updates(self):
+        """Schedule call all registered callbacks."""
+        for callback in self._callbacks:
+            callback()
+            
+    async def push(self, val):
         """when an external status udate happened, and you want to update the internal value"""
         if self._value != val:
-            logger.info("Updated {} to {}".format(self.name, val))
+            logger.warn("Updated {} to {}".format(self.name, val))
             self._value = val
+            await self.publish_updates()
     
-    def update_from_global(self, status):
+    async def update_from_global(self, status):
         """when an external status udate happened, and you want to update the internal value and parse the update data here to fetch what is needed"""
         try:
             if str(self.address) in status:
                 line = status[str(self.address)]
                 if type(line) == list and len(status[str(self.address)]) > self.channel:
-                    self.push(status[str(self.address)][self.channel])
+                    await self.push(status[str(self.address)][self.channel])
                 elif type(line) == dict and str(self.channel) in status[str(self.address)]:
                     if self.address == DOBISS_TEMPERATURE:
-                        self.push(float(status[str(self.address)][str(self.channel)]['temp']))
+                        await self.push(float(status[str(self.address)][str(self.channel)]['temp']))
                     else:
-                        self.push(int(status[str(self.address)][str(self.channel)]))
+                        await self.push(int(status[str(self.address)][str(self.channel)]))
                 else:
                     logger.debug("{} not found in status update".format(self.name))
                 logger.debug("Updated {} = {}: groupname {}; addr {}; channel {}; dimmable {}".format(self.name, self.value, self.groupname, self.address, self.channel, self.dimmable))
@@ -140,7 +155,7 @@ class DobissEntity:
         except Exception:
             logger.exception("Error trying to update {}".format(self.name))
 
-    def update(self):
+    async def update(self):
         """Fetch new state data for this entity.
         This is the only method that should fetch new data for Home Assistant.
         """
@@ -149,7 +164,9 @@ class DobissEntity:
             val = float(response.json()["status"]['temp'])
         else:
             val = int(response.json()["status"])
-        self._value  = val
+        if val != self._value:
+	        self._value  = val
+	        await self.publish_updates()
 
 class DobissOutput(DobissEntity):
     """ a generic Dobiss Output, can be a light, switch, etc... """
@@ -231,6 +248,7 @@ class DobissAPI:
         self._force_discovery = False
         self._discovery_interval = DEF_DISCOVERY_INTERVAL
         self._devices = []
+        self._callbacks = set()
     
     def get_token(self):
         """ Request a token to use in a request to the Dobiss server """
@@ -351,22 +369,22 @@ class DobissAPI:
                 return device
         return None
 
-    def update_from_status(self, status):
+    async def update_from_status(self, status):
         for e in self._devices:
-            e.update_from_global(status)
+            await e.update_from_global(status)
 
-    def update_all(self):
+    async def update_all(self):
         status = self.status().json()
         logger.debug("Status response: {}".format(status))
         for e in self._devices:
-            e.update_from_global(status["status"])
+            await e.update_from_global(status["status"])
 
     async def listen_for_dobiss(self, ws):
         while True:
             response = await ws.recv()
             if response[0] == '{':
                 logger.debug("Status update pushed: {}".format(response))
-                self.update_from_status(json.loads(response))
+                await self.update_from_status(json.loads(response))
 
     async def dobiss_monitor(self):
         websocket = await self.register_dobiss()
