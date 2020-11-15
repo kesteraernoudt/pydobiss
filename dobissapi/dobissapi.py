@@ -146,11 +146,11 @@ class DobissEntity:
                         await self.push(float(status[str(self.address)][str(self.channel)]['temp']))
                     else:
                         await self.push(int(status[str(self.address)][str(self.channel)]))
-                else:
-                    logger.debug(f"{self.name} not found in status update")
+                #else:
+                #    logger.debug(f"{self.name} not found in status update")
                 #logger.debug("Updated {} = {}: groupname {}; addr {}; channel {}; dimmable {}".format(self.name, self.value, self.groupname, self.address, self.channel, self.dimmable))
-            else:
-                logger.debug("{} not found in status update".format(self.name))
+            #else:
+            #    logger.debug("{} not found in status update".format(self.name))
         except Exception:
             logger.exception("Error trying to update {}".format(self.name))
 
@@ -183,14 +183,13 @@ class DobissOutput(DobissEntity):
         brightness control.
         """
         if self._dimmable:
-            self._value = kwargs.get(ATTR_BRIGHTNESS, 100)
+            value = kwargs.get(ATTR_BRIGHTNESS, 100)
         else:
-            self._value = 1
-        await self._dobiss.action(self._address, self._channel, 1, self._value)
+            value = 1
+        await self._dobiss.action(self._address, self._channel, 1, value)
 
     async def turn_off(self, **kwargs):
         """Instruct the entity to turn off."""
-        self._value = 0
         await self._dobiss.action(self._address, self._channel, 0)
 
 class DobissLight(DobissOutput):
@@ -379,18 +378,23 @@ class DobissAPI:
         logger.debug("Status response: {}".format(status))
         await self.update_from_status(status["status"])
 
-    async def listen_for_dobiss(self, ws):
+    async def listen_for_dobiss(self):
         while True:
-            response = await ws.receive()
-            logger.debug("received ws message")
-            if response.data[0] == '{':
-                logger.debug(f"Status update pushed: {response.data}")
-                await self.update_from_status(response.json())
+            ws = await self.register_dobiss()
+            while True:
+                try:
+                    response = await ws.receive()
+                    #logger.debug("received ws message")
+                    if response.data[0] == '{':
+                        logger.debug(f"Status update pushed: {response.data}")
+                        await self.update_from_status(response.json())
+                except:
+                    break
+
 
     async def dobiss_monitor(self):
         logger.debug("registering for websocket connection")
-        websocket = await self.register_dobiss()
-        asyncio.ensure_future(self.listen_for_dobiss(websocket))
+        asyncio.ensure_future(self.listen_for_dobiss())
 
     async def register_dobiss(self):
         headers = { 'Authorization': 'Bearer ' + self.get_token() }
