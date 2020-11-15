@@ -259,6 +259,7 @@ class DobissAPI:
         self._force_discovery = False
         self._discovery_interval = DEF_DISCOVERY_INTERVAL
         self._devices = []
+        self._stop_monitoring = True
         self._callbacks = set()
     
     def get_token(self):
@@ -379,24 +380,31 @@ class DobissAPI:
         await self.update_from_status(status["status"])
 
     async def listen_for_dobiss(self):
-        while True:
-            ws = await self.register_dobiss()
-            while True:
+        while not self._stop_monitoring:
+            logger.debug("registering for websocket connection")
+            await self.discovery()
+            headers = { 'Authorization': 'Bearer ' + self.get_token() }
+            self._websocket = await self._session.ws_connect(self._ws_url, headers=headers)
+            while not self._stop_monitoring:
                 try:
-                    response = await ws.receive()
+                    response = await self._websocket.receive()
                     #logger.debug("received ws message")
                     if response.data[0] == '{':
                         logger.debug(f"Status update pushed: {response.data}")
                         await self.update_from_status(response.json())
+                except asyncio.exceptions.CancelledError:
+                    logger.debug("websocket connection cancelled - stop monitoring")
+                    self._stop_monitoring = True
                 except:
+                    logger.exception(f"Status update exception")
                     break
 
+    async def stop_monitoring(self):
+        self._stop_monitoring = True
+        await self._websocket.close()
 
     async def dobiss_monitor(self):
-        logger.debug("registering for websocket connection")
+        self._stop_monitoring = False
         asyncio.ensure_future(self.listen_for_dobiss())
 
-    async def register_dobiss(self):
-        headers = { 'Authorization': 'Bearer ' + self.get_token() }
-        return await self._session.ws_connect(self._ws_url, headers=headers)
 
