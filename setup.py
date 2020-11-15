@@ -7,7 +7,7 @@ with open('README.md') as f:
 
 setup(
     name='pydobiss',
-    version='0.1.3',
+    version='0.1.5',
     description='python interface to the dobiss developer api',
     long_description=readme,
     long_description_content_type='text/markdown',
@@ -16,9 +16,9 @@ setup(
     url='https://github.com/kesteraernoudt/pydobiss',
     license='MIT',
     packages=find_packages(),
-	install_requires=['requests',
+	install_requires=['asyncio',
                       'pyjwt',                     
-                      'websockets',                     
+                      'aiohttp',                     
                       ],
 )
 

@@ -1,8 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import jwt
-import requests
-import websockets
+import aiohttp
 from datetime import datetime, timedelta
 import asyncio
 import json
@@ -131,7 +130,7 @@ class DobissEntity:
     async def push(self, val):
         """when an external status udate happened, and you want to update the internal value"""
         if self._value != val:
-            logger.warn("Updated {} to {}".format(self.name, val))
+            logger.debug(f"Updated {self._name} to {val}")
             self._value = val
             await self.publish_updates()
     
@@ -148,8 +147,8 @@ class DobissEntity:
                     else:
                         await self.push(int(status[str(self.address)][str(self.channel)]))
                 else:
-                    logger.debug("{} not found in status update".format(self.name))
-                logger.debug("Updated {} = {}: groupname {}; addr {}; channel {}; dimmable {}".format(self.name, self.value, self.groupname, self.address, self.channel, self.dimmable))
+                    logger.debug(f"{self.name} not found in status update")
+                #logger.debug("Updated {} = {}: groupname {}; addr {}; channel {}; dimmable {}".format(self.name, self.value, self.groupname, self.address, self.channel, self.dimmable))
             else:
                 logger.debug("{} not found in status update".format(self.name))
         except Exception:
@@ -159,11 +158,12 @@ class DobissEntity:
         """Fetch new state data for this entity.
         This is the only method that should fetch new data for Home Assistant.
         """
-        response = self._dobiss.status(self._address, self._channel)
+        response = await self._dobiss.status(self._address, self._channel)
+        data = await response.json()
         if self._address == DOBISS_TEMPERATURE:
-            val = float(response.json()["status"]['temp'])
+            val = float(data["status"]['temp'])
         else:
-            val = int(response.json()["status"])
+            val = int(data["status"])
         if val != self._value:
 	        self._value  = val
 	        await self.publish_updates()
@@ -171,13 +171,13 @@ class DobissEntity:
 class DobissOutput(DobissEntity):
     """ a generic Dobiss Output, can be a light, switch, etc... """
 
-    def toggle(self):
+    async def toggle(self):
         if self.is_on:
-            self.turn_off()
+            await self.turn_off()
         else:
-            self.turn_on()
+            await self.turn_on()
 
-    def turn_on(self, **kwargs):
+    async def turn_on(self, **kwargs):
         """Instruct the entity to turn on.
         You can skip the brightness part if your entity does not support
         brightness control.
@@ -186,12 +186,12 @@ class DobissOutput(DobissEntity):
             self._value = kwargs.get(ATTR_BRIGHTNESS, 100)
         else:
             self._value = 1
-        self._dobiss.action(self._address, self._channel, 1, self._value)
+        await self._dobiss.action(self._address, self._channel, 1, self._value)
 
-    def turn_off(self, **kwargs):
+    async def turn_off(self, **kwargs):
         """Instruct the entity to turn off."""
         self._value = 0
-        self._dobiss.action(self._address, self._channel, 0)
+        await self._dobiss.action(self._address, self._channel, 0)
 
 class DobissLight(DobissOutput):
     """ a dobiss light object, can be dimmable or not """
@@ -236,14 +236,26 @@ class DobissLightSensor(DobissSensor):
     """ a dobiss Light Sensor """
 
 class DobissAPI:
-    token = ''
-    exp_time = datetime.now()
     
-    def __init__(self, secret, url, ws_url):
+    def __init__(self, secret, host, secure: bool):
         """ Initialize dobiss api object """
-        self.secret = secret
-        self.url = url
-        self.ws_url = ws_url
+        url = ""
+        ws_url = ""
+        if secure:
+            url = f"https://{host}/api/local/"
+            ws_url = f"wss://{host}/sockets/api"
+        else:
+            url = f"http://{host}/api/local/"
+            ws_url = f"ws://{host}/sockets/api"
+
+        self._session = aiohttp.ClientSession(raise_for_status=True)
+        self._host = host
+        self._secure = secure
+        self._token = ''
+        self._exp_time = datetime.now()
+        self._secret = secret
+        self._url = url
+        self._ws_url = ws_url
         self._last_discovery = None
         self._force_discovery = False
         self._discovery_interval = DEF_DISCOVERY_INTERVAL
@@ -252,11 +264,11 @@ class DobissAPI:
     
     def get_token(self):
         """ Request a token to use in a request to the Dobiss server """
-        if self.exp_time < datetime.now() + timedelta(hours=20):
+        if self._exp_time < datetime.now() + timedelta(hours=20):
             # get new token
-            self.token = (jwt.encode({'name': 'my_application'}, self.secret, headers={'expiresIn': "24h" })).decode("utf-8")
-            self.exp_time = datetime.now() + timedelta(hours=20)
-        return self.token
+            self._token = (jwt.encode({'name': 'my_application'}, self._secret, headers={'expiresIn': "24h" })).decode("utf-8")
+            self._exp_time = datetime.now() + timedelta(hours=20)
+        return self._token
 
     @property
     def discovery_interval(self):
@@ -276,55 +288,43 @@ class DobissAPI:
             self._force_discovery = False
             return True
         difference = (datetime.now() - self._last_discovery).total_seconds()
-        if difference > self.discovery_interval:
+        if difference > self._discovery_interval:
             return True
         return False
 
-    def discover_devices(self):
-        devices = self.discovery()
-        if not devices:
-            return None
-        return devices
-        
     # if discovery is called before that configured polling interval has passed
     # it return cached data retrieved by previous successful call
-    def discovery(self):
+    async def discovery(self):
         if self._call_discovery():
             try:
                 headers = { 'Authorization': 'Bearer ' + self.get_token() }
-                response = requests.get(self.url + 'discover', headers=headers)
+                async with self._session.get(self._url + 'discover', headers=headers) as response:
+                    if response:
+                        if response.status == 200:
+                            discovered_devices = await response.json()
+                            logger.debug("Discover response: {}".format(discovered_devices))
+                            self._get_dobiss_devices(discovered_devices)
             finally:
                 self._last_discovery = datetime.now()
-            if response:
-                result_code = response.status_code
-                if result_code == 200:
-                    discovered_devices = response.json()
-                    logger.debug("Discover response: {}".format(discovered_devices))
-                    self._get_dobiss_devices(discovered_devices)
         else:
             logger.debug("Discovery: Use cached info")
         return self._devices
 
-    def status(self, address = None, channel = None):
+    async def status(self, address = None, channel = None):
         data = {}
         if address != None:
             data["address"] = address
         if channel != None:
             data["channel"] = channel
-        #data = { 'address': address, 'channel': channel }
         headers = { 'Authorization': 'Bearer ' + self.get_token() }
-        return requests.get(self.url + 'status', headers=headers, json=data)
+        return await self._session.get(self._url + 'status', headers=headers, json=data)
 
-    def action(self, address, channel, action, option1 = None):
+    async def action(self, address, channel, action, option1 = None):
         writedata = { 'address': address, 'channel': channel, 'action': action }
         if option1 != None:
             writedata["option1"] = option1
         headers = { 'Authorization': 'Bearer ' + self.get_token() }
-        return requests.post(self.url + 'action', headers=headers, json=writedata)
-
-    async def register_dobiss(self):
-        headers = { 'Authorization': 'Bearer ' + self.get_token() }
-        return await websockets.connect(self.ws_url, extra_headers=headers)
+        return await self._session.post(self._url + 'action', headers=headers, json=writedata)
 
     def _get_dobiss_devices(self, discovered_devices):
         self._devices = []
@@ -374,19 +374,25 @@ class DobissAPI:
             await e.update_from_global(status)
 
     async def update_all(self):
-        status = self.status().json()
+        response = await self.status()
+        status = await response.json()
         logger.debug("Status response: {}".format(status))
-        for e in self._devices:
-            await e.update_from_global(status["status"])
+        await self.update_from_status(status["status"])
 
     async def listen_for_dobiss(self, ws):
         while True:
-            response = await ws.recv()
-            if response[0] == '{':
-                logger.debug("Status update pushed: {}".format(response))
-                await self.update_from_status(json.loads(response))
+            response = await ws.receive()
+            logger.debug("received ws message")
+            if response.data[0] == '{':
+                logger.debug(f"Status update pushed: {response.data}")
+                await self.update_from_status(response.json())
 
     async def dobiss_monitor(self):
+        logger.debug("registering for websocket connection")
         websocket = await self.register_dobiss()
         asyncio.ensure_future(self.listen_for_dobiss(websocket))
+
+    async def register_dobiss(self):
+        headers = { 'Authorization': 'Bearer ' + self.get_token() }
+        return await self._session.ws_connect(self._ws_url, headers=headers)
 
