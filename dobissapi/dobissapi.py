@@ -59,6 +59,14 @@ class DobissEntity:
         self._dobiss = dobiss
         self._callbacks = set()
 
+    def update_from_discovery(self, entity):
+        self._json = entity.json
+        self._groupname = entity.groupname
+        self._name = entity.name
+        self._dimmable = entity.dimmable
+        self._icons_id = entity.icons_id
+        self._type = entity.type
+
     @property
     def name(self):
         """Return the display name of this entity."""
@@ -360,30 +368,37 @@ class DobissAPI:
         return await self._session.post(self._url + 'action', headers=headers, json=writedata)
 
     def _get_dobiss_devices(self, discovered_devices):
-        self._devices = []
+        new_devices = []
         for group in discovered_devices["groups"]:
             for subject in group["subjects"]:
                 logger.debug("Discovered {}: addr {}; channel {}; type {}; icon {}".format(subject["name"], subject["address"], subject["channel"], subject["type"], subject["icons_id"]))
                 if group["group"]["id"] != 0:
                     # skip first group - nothing of interest in there...
                     if str(subject["icons_id"]) == "0": # check for lights
-                        self._devices.append(DobissLight(self, subject, group["group"]["name"]))
+                        new_devices.append(DobissLight(self, subject, group["group"]["name"]))
                     elif str(subject["type"]) == "8": # other items connected to a relais
-                        self._devices.append(DobissSwitch(self, subject, group["group"]["name"]))
+                        new_devices.append(DobissSwitch(self, subject, group["group"]["name"]))
                     elif str(subject["type"]) == "1": # status input
-                        self._devices.append(DobissBinarySensor(self, subject, group["group"]["name"]))
+                        new_devices.append(DobissBinarySensor(self, subject, group["group"]["name"]))
                     elif str(subject["type"]) == "206": # flags
-                        self._devices.append(DobissFlag(self, subject, group["group"]["name"]))
+                        new_devices.append(DobissFlag(self, subject, group["group"]["name"]))
                     elif str(subject["type"]) == "201": # scenarios
-                        self._devices.append(DobissScenario(self, subject, group["group"]["name"]))
+                        new_devices.append(DobissScenario(self, subject, group["group"]["name"]))
                     elif str(subject["type"]) == "202": # automations
-                        self._devices.append(DobissAutomation(self, subject, group["group"]["name"]))
+                        new_devices.append(DobissAutomation(self, subject, group["group"]["name"]))
                     #elif str(subject["type"]) == "203": # logical conditions
-                    #	self._devices.append(DobissSensor(self, subject, group["group"]["name"]))
+                    #	new_devices.append(DobissSensor(self, subject, group["group"]["name"]))
                     elif (str(subject["type"]) == "204" and subject["name"] != "All zones"): # temperature
-                        self._devices.append(DobissTempSensor(self, subject, group["group"]["name"]))
+                        new_devices.append(DobissTempSensor(self, subject, group["group"]["name"]))
                     elif str(subject["type"]) == "0": # lightcell
-                        self._devices.append(DobissLightSensor(self, subject, group["group"]["name"]))
+                        new_devices.append(DobissLightSensor(self, subject, group["group"]["name"]))
+        for dev in new_devices:
+            existing_dev = self.get_device_by_id(dev.object_id)
+            if existing_dev:
+                existing_dev.update_from_discovery(dev)
+            else:
+                # a new device - add this to the list
+                self._devices.append(dev)
         return self._devices
     
     def get_devices_by_type(self, dev_type):
@@ -415,7 +430,6 @@ class DobissAPI:
     async def listen_for_dobiss(self):
         while not self._stop_monitoring:
             logger.debug("registering for websocket connection")
-            await self.discovery()
             headers = { 'Authorization': 'Bearer ' + self.get_token() }
             self.start_session()
             self._websocket = await self._session.ws_connect(self._ws_url, headers=headers)

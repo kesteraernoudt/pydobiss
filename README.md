@@ -74,6 +74,14 @@ async def main():
     await asyncio.sleep(2)
     await get_entity(entities, "Mancave").turn_off()
 
+    # check if new discovery works fine with old callback
+    await asyncio.sleep(60)
+    entities = await dobiss.discovery()
+    await asyncio.sleep(2)
+    await get_entity(entities, "Mancave").turn_on()
+    await asyncio.sleep(2)
+    await get_entity(entities, "Mancave").turn_off()
+
 try:
     loop = asyncio.get_event_loop()
     loop.create_task(main())
