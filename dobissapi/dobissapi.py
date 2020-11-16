@@ -41,6 +41,44 @@ DOBISS_TEMPERATURE = 204
 DOBISS_AUDIO = 205
 DOBISS_FLAG = 206
 
+ICON_FROM_DOBISS = {
+    DOBISS_LIGHT : "mdi:lightbulb",
+    DOBISS_PLUG : "mdi:power-plug",
+    DOBISS_VENTILATION : "mdi:hvac",
+    DOBISS_UP : "mdi:arrow-up",
+    DOBISS_DOWN : "mdi:arrow-down",
+    DOBISS_HEATING : "mdi:radiator",
+    DOBISS_TABLELIGHT : "mdi:lamp",
+    DOBISS_DOOR : "mdi:door",
+    DOBISS_GARAGE : "mdi:garage",
+    DOBISS_GATE : "mdi:gate",
+    DOBISS_RED : "mdi:exclamation",
+    DOBISS_GREEN : "mdi:thumb-up",
+    DOBISS_BLUE : "mdi:help",
+    DOBISS_WHITE : "mdi:alpha-n",
+    DOBISS_INPUTSTATUS : "mdi:list-status",
+    DOBISS_LIGHTSENSOR : "mdi:theme-light-dark",
+    DOBISS_SCENARIO : "mdi:movie-open",
+    DOBISS_AUTOMATION : "mdi:home-automation",
+    DOBISS_CONDITION : "mdi:account-question",
+    DOBISS_TEMPERATURE : "mdi:thermometer",
+    DOBISS_AUDIO : "mdi:cast-audio",
+    DOBISS_FLAG : "mdi:flag"
+}
+
+# DOBISS type mapping
+DOBISS_TYPE_NXT = 0
+DOBISS_TYPE_INPUT = 1
+DOBISS_TYPE_DALI = 1
+DOBISS_TYPE_RELAIS = 8
+DOBISS_TYPE_ANALOG = 24
+DOBISS_TYPE_SCENARIO = 201
+DOBISS_TYPE_AUTOMATION = 202
+DOBISS_TYPE_CONDITION = 203
+DOBISS_TYPE_TEMPERATURE = 204
+DOBISS_TYPE_AUDIO = 205
+DOBISS_TYPE_FLAG = 206
+
 class DobissEntity:
     """ a generic Dobiss Entity, can be a light, switch, sensor, etc... """
 
@@ -156,7 +194,7 @@ class DobissEntity:
                         await self.push(int(status[str(self.address)][str(self.channel)]))
                 #else:
                 #    logger.debug(f"{self.name} not found in status update")
-                #logger.debug("Updated {} = {}: groupname {}; addr {}; channel {}; dimmable {}".format(self.name, self.value, self.groupname, self.address, self.channel, self.dimmable))
+                #logger.debug("Updated {} = {}: groupname {}; addr {}; channel {}; dimmable {}".format(self.name, self._value, self.groupname, self.address, self.channel, self.dimmable))
             #else:
             #    logger.debug("{} not found in status update".format(self.name))
         except Exception:
@@ -203,22 +241,25 @@ class DobissOutput(DobissEntity):
 class DobissLight(DobissOutput):
     """ a dobiss light object, can be dimmable or not """
 
+class DobissAnalogOutput(DobissOutput):
+    """ a dobiss light object, can be dimmable or not """
+
 class DobissSwitch(DobissOutput):
     """ a dobiss switch, can be up/down switch, door switch, etc... """
 
-class DobissScenario(DobissSwitch):
+class DobissScenario(DobissOutput):
     """ a dobiss scenario """
 
-class DobissAutomation(DobissSwitch):
+class DobissAutomation(DobissOutput):
     """ a dobiss automation """
 
-class DobissFlag(DobissSwitch):
+class DobissFlag(DobissOutput):
     """ a dobiss flag """
 
 class DobissSensor(DobissEntity):
     """ a dobiss sensor, can be binary or not, lightswitch, temperature sensor, etc """
     def __init__(self, dobiss, data, groupname):
-        DobissEntity.__init__(self, dobiss, data, groupname)
+        super().__init__(dobiss, data, groupname)
         if int(data["type"]) == DOBISS_TEMPERATURE:
             self._unit = 'C'
         elif int(data["type"]) == 0:
@@ -374,23 +415,25 @@ class DobissAPI:
                 logger.debug("Discovered {}: addr {}; channel {}; type {}; icon {}".format(subject["name"], subject["address"], subject["channel"], subject["type"], subject["icons_id"]))
                 if group["group"]["id"] != 0:
                     # skip first group - nothing of interest in there...
-                    if str(subject["icons_id"]) == "0": # check for lights
+                    if str(subject["icons_id"]) == str(DOBISS_LIGHT): # check for lights
                         new_devices.append(DobissLight(self, subject, group["group"]["name"]))
-                    elif str(subject["type"]) == "8": # other items connected to a relais
+                    elif str(subject["type"]) == str(DOBISS_TYPE_ANALOG): # other items connected to a 0-10V output
+                        new_devices.append(DobissAnalogOutput(self, subject, group["group"]["name"]))
+                    elif str(subject["type"]) == str(DOBISS_TYPE_RELAIS): # other items connected to a relais
                         new_devices.append(DobissSwitch(self, subject, group["group"]["name"]))
-                    elif str(subject["type"]) == "1": # status input
+                    elif str(subject["type"]) == str(DOBISS_TYPE_INPUT): # status input
                         new_devices.append(DobissBinarySensor(self, subject, group["group"]["name"]))
-                    elif str(subject["type"]) == "206": # flags
+                    elif str(subject["type"]) == str(DOBISS_TYPE_FLAG): # flags
                         new_devices.append(DobissFlag(self, subject, group["group"]["name"]))
-                    elif str(subject["type"]) == "201": # scenarios
+                    elif str(subject["type"]) == str(DOBISS_TYPE_SCENARIO): # scenarios
                         new_devices.append(DobissScenario(self, subject, group["group"]["name"]))
-                    elif str(subject["type"]) == "202": # automations
+                    elif str(subject["type"]) == str(DOBISS_TYPE_AUTOMATION): # automations
                         new_devices.append(DobissAutomation(self, subject, group["group"]["name"]))
                     #elif str(subject["type"]) == "203": # logical conditions
                     #	new_devices.append(DobissSensor(self, subject, group["group"]["name"]))
-                    elif (str(subject["type"]) == "204" and subject["name"] != "All zones"): # temperature
+                    elif (str(subject["type"]) == str(DOBISS_TYPE_AUDIO) and subject["name"] != "All zones"): # temperature
                         new_devices.append(DobissTempSensor(self, subject, group["group"]["name"]))
-                    elif str(subject["type"]) == "0": # lightcell
+                    elif str(subject["type"]) == str(DOBISS_TYPE_NXT): # lightcell
                         new_devices.append(DobissLightSensor(self, subject, group["group"]["name"]))
         for dev in new_devices:
             existing_dev = self.get_device_by_id(dev.object_id)
@@ -404,7 +447,7 @@ class DobissAPI:
     def get_devices_by_type(self, dev_type):
         device_list = []
         for device in self._devices:
-            if type(device) == dev_type:
+            if isinstance(device, dev_type):
                 device_list.append(device)
         return device_list
 
@@ -432,34 +475,36 @@ class DobissAPI:
             logger.debug("registering for websocket connection")
             headers = { 'Authorization': 'Bearer ' + self.get_token() }
             self.start_session()
-            self._websocket = await self._session.ws_connect(self._ws_url, headers=headers)
-            while not self._stop_monitoring:
-                try:
-                    response = await self._websocket.receive()
-                    # logger.debug("received ws message")
-                    if response.type == aiohttp.WSMsgType.CLOSE:
-                        await self._websocket.close()
-                        break
-                    elif response.type == aiohttp.WSMsgType.ERROR:
-                        break
-                    elif response.type == aiohttp.WSMsgType.CLOSED:
-                        break
-                    if (
-                        response.type == aiohttp.WSMsgType.TEXT
-                        and response.data[0] == "{"
-                    ):
-                        logger.debug(f"Status update pushed: {response.data}")
-                        await self.update_from_status(response.json())
-                except asyncio.exceptions.CancelledError:
-                    logger.debug("websocket connection cancelled - stop monitoring")
-                    self._stop_monitoring = True
-                except:
-                    logger.exception(f"Status update exception")
-                    break
+            async with self._session.ws_connect(self._ws_url, headers=headers) as ws:
+                while not self._stop_monitoring:
+                    async for response in ws:
+                        try:
+                            # logger.debug("received ws message")
+                            if response.type == aiohttp.WSMsgType.CLOSE:
+                                logger.debug(f"Websocket received CLOSE: {response.data}")
+                                await ws.close()
+                                break
+                            elif response.type == aiohttp.WSMsgType.ERROR:
+                                logger.debug(f"Websocket connection error: {response.data}")
+                                break
+                            elif response.type == aiohttp.WSMsgType.CLOSED:
+                                logger.debug(f"Websocket received CLOSED: {response.data}")
+                                break
+                            if (
+                                response.type == aiohttp.WSMsgType.TEXT
+                                and response.data[0] == "{"
+                            ):
+                                logger.debug(f"Status update pushed: {response.data}")
+                                await self.update_from_status(response.json())
+                        except asyncio.exceptions.CancelledError:
+                            logger.exception("websocket connection cancelled - stop monitoring")
+                            self._stop_monitoring = True
+                        except:
+                            logger.exception(f"Status update exception")
+                            break
 
-    async def stop_monitoring(self):
+    def stop_monitoring(self):
         self._stop_monitoring = True
-        await self._websocket.close()
 
     async def dobiss_monitor(self):
         self._stop_monitoring = False
