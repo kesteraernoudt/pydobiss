@@ -272,9 +272,10 @@ class DobissAPI:
             self._session = aiohttp.ClientSession(raise_for_status=True)
         return self._session
 
-    def end_session(self):
-        if self._session and not self.session.closed:
-            self._session.close()
+    async def end_session(self):
+        if self._session:
+            if not self.session.closed:
+                await self._session.close()
             self._session = None
         return self._session
 
@@ -288,6 +289,8 @@ class DobissAPI:
                     auth_ok = True
         except:
             logger.exception("Äuthenticating Dobiss failed")
+        finally:
+            await self._session.close()
         return auth_ok
 
     def get_token(self):
@@ -345,6 +348,7 @@ class DobissAPI:
         if channel != None:
             data["channel"] = channel
         headers = { 'Authorization': 'Bearer ' + self.get_token() }
+        self.start_session()
         return await self._session.get(self._url + 'status', headers=headers, json=data)
 
     async def action(self, address, channel, action, option1 = None):
