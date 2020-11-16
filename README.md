@@ -19,9 +19,6 @@ pip install pydobiss
 import asyncio
 import aiohttp
 
-import sys
-sys.path.insert(0, './pydobiss')
-
 import logging
 
 from time import sleep
@@ -36,6 +33,13 @@ secure = False
 dobiss = dobissapi.DobissAPI(secret, host, secure)
 
 async def main():
+
+    if not await dobiss.auth_check():
+        print("Error authenticating dobiss")
+        return
+    print("authenticated dobiss")
+
+    asyncio.get_event_loop().create_task(dobiss.dobiss_monitor())
 
     entities = await dobiss.discovery()
     await dobiss.update_all()
@@ -59,19 +63,19 @@ async def main():
     await asyncio.sleep(2)
     await get_entity(entities, "Mancave").toggle()
 
-    #get_entity(entities, "Mancave").update()
-    #get_entity(entities, "Mancave").turn_on()
-    #sleep(2)
-    #get_entity(entities, "Mancave").turn_off()
-
+    # test callbacks
     def my_callback():
         print("callback happened")
 
     get_entity(entities, "Mancave").register_callback(my_callback)
 
+    await asyncio.sleep(2)
+    await get_entity(entities, "Mancave").turn_on()
+    await asyncio.sleep(2)
+    await get_entity(entities, "Mancave").turn_off()
+
 try:
     loop = asyncio.get_event_loop()
-    loop.create_task(dobiss.dobiss_monitor())
     loop.create_task(main())
     loop.run_forever()
 except KeyboardInterrupt:

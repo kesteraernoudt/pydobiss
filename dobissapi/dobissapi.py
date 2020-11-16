@@ -247,7 +247,6 @@ class DobissAPI:
             url = f"http://{host}/api/local/"
             ws_url = f"ws://{host}/sockets/api"
 
-        self._session = aiohttp.ClientSession(raise_for_status=True)
         self._host = host
         self._secure = secure
         self._token = ''
@@ -261,7 +260,36 @@ class DobissAPI:
         self._devices = []
         self._stop_monitoring = True
         self._callbacks = set()
-    
+        self._session = None
+
+    @property
+    def session(self):
+        """The interval in seconds between 2 consecutive device discovery"""
+        return self._session
+
+    def start_session(self):
+        if not self._session or self._session.closed:
+            self._session = aiohttp.ClientSession(raise_for_status=True)
+        return self._session
+
+    def end_session(self):
+        if self._session and not self.session.closed:
+            self._session.close()
+            self._session = None
+        return self._session
+
+    async def auth_check(self):
+        headers = { 'Authorization': 'Bearer ' + self.get_token() }
+        auth_ok = False
+        try:
+            self.start_session()
+            async with self._session.get(self._url + 'status', headers=headers) as response:
+                if response and response.status == 200:
+                    auth_ok = True
+        except:
+            logger.exception("Äuthenticating Dobiss failed")
+        return auth_ok
+
     def get_token(self):
         """ Request a token to use in a request to the Dobiss server """
         if self._exp_time < datetime.now() + timedelta(hours=20):
@@ -298,12 +326,12 @@ class DobissAPI:
         if self._call_discovery():
             try:
                 headers = { 'Authorization': 'Bearer ' + self.get_token() }
-                async with self._session.get(self._url + 'discover', headers=headers) as response:
-                    if response:
-                        if response.status == 200:
-                            discovered_devices = await response.json()
-                            logger.debug("Discover response: {}".format(discovered_devices))
-                            self._get_dobiss_devices(discovered_devices)
+                self.start_session()
+                response = await self._session.get(self._url + 'discover', headers=headers)
+                if response and response.status == 200:
+                    discovered_devices = await response.json()
+                    logger.debug(f"Discover response: {discovered_devices}")
+                    self._get_dobiss_devices(discovered_devices)
             finally:
                 self._last_discovery = datetime.now()
         else:
@@ -324,6 +352,7 @@ class DobissAPI:
         if option1 != None:
             writedata["option1"] = option1
         headers = { 'Authorization': 'Bearer ' + self.get_token() }
+        self.start_session()
         return await self._session.post(self._url + 'action', headers=headers, json=writedata)
 
     def _get_dobiss_devices(self, discovered_devices):
@@ -384,12 +413,23 @@ class DobissAPI:
             logger.debug("registering for websocket connection")
             await self.discovery()
             headers = { 'Authorization': 'Bearer ' + self.get_token() }
+            self.start_session()
             self._websocket = await self._session.ws_connect(self._ws_url, headers=headers)
             while not self._stop_monitoring:
                 try:
                     response = await self._websocket.receive()
-                    #logger.debug("received ws message")
-                    if response.data[0] == '{':
+                    # logger.debug("received ws message")
+                    if response.type == aiohttp.WSMsgType.CLOSE:
+                        await self._websocket.close()
+                        break
+                    elif response.type == aiohttp.WSMsgType.ERROR:
+                        break
+                    elif response.type == aiohttp.WSMsgType.CLOSED:
+                        break
+                    if (
+                        response.type == aiohttp.WSMsgType.TEXT
+                        and response.data[0] == "{"
+                    ):
                         logger.debug(f"Status update pushed: {response.data}")
                         await self.update_from_status(response.json())
                 except asyncio.exceptions.CancelledError:
