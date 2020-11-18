@@ -553,6 +553,9 @@ class DobissAPI:
                     await self.update_from_status(response)
                 except TypeError:
                     logger.exception("dobiss monitor exception")
+                    if not ws.closed:
+                        await ws.close()
+                    break
                 except ValueError:
                     logger.exception("dobiss monitor exception")
                 except asyncio.exceptions.CancelledError:
