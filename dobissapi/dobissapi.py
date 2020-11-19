@@ -544,29 +544,35 @@ class DobissAPI:
             logger.debug("registering for websocket connection")
             headers = {"Authorization": "Bearer " + self.get_token()}
             self.start_session()
-            ws = await self._session.ws_connect(self._ws_url, headers=headers)
-            while not self._stop_monitoring:
-                try:
-                    response = await ws.receive_json()
-                    # logger.debug("received ws message")
-                    logger.debug(f"Status update pushed: {response}")
-                    await self.update_from_status(response)
-                except TypeError:
-                    logger.exception("dobiss monitor exception")
-                    if not ws.closed:
-                        await ws.close()
-                    break
-                except ValueError:
-                    logger.exception("dobiss monitor exception")
-                except asyncio.exceptions.CancelledError:
-                    logger.debug("websocket connection cancelled - we must be stopping")
-                    self._stop_monitoring = True
-                    break
-                except:
-                    logger.exception(f"Status update exception")
-                    if not ws.closed:
-                        await ws.close()
-                    break
+            try:
+                ws = await self._session.ws_connect(self._ws_url, headers=headers)
+                while not self._stop_monitoring:
+                    try:
+                        response = await ws.receive_json()
+                        # logger.debug("received ws message")
+                        logger.debug(f"Status update pushed: {response}")
+                        await self.update_from_status(response)
+                    except TypeError:
+                        logger.exception("dobiss monitor exception")
+                        if not ws.closed:
+                            await ws.close()
+                        break
+                    except ValueError:
+                        logger.exception("dobiss monitor exception")
+                    except asyncio.exceptions.CancelledError:
+                        logger.debug(
+                            "websocket connection cancelled - we must be stopping"
+                        )
+                        self._stop_monitoring = True
+                        break
+                    except:
+                        logger.exception(f"Status update exception")
+                        if not ws.closed:
+                            await ws.close()
+                        break
+            except:
+                logger.exception("Failed to connect, waiting a bit before retrying")
+                await asyncio.sleep(10)
 
     def stop_monitoring(self):
         self._stop_monitoring = True
