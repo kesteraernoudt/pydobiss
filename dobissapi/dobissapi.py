@@ -336,6 +336,10 @@ class DobissAPI:
         """The interval in seconds between 2 consecutive device discovery"""
         return self._session
 
+    @property
+    def host(self):
+        return self._host
+
     def start_session(self):
         if not self._session or self._session.closed:
             self._session = aiohttp.ClientSession(raise_for_status=True)
@@ -494,7 +498,7 @@ class DobissAPI:
                     # elif str(subject["type"]) == "203": # logical conditions
                     # 	new_devices.append(DobissSensor(self, subject, group["group"]["name"]))
                     elif (
-                        str(subject["type"]) == str(DOBISS_TYPE_AUDIO)
+                        str(subject["type"]) == str(DOBISS_TYPE_TEMPERATURE)
                         and subject["name"] != "All zones"
                     ):  # temperature
                         new_devices.append(
