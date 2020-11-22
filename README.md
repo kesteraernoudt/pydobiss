@@ -52,6 +52,15 @@ async def main():
     for e in scenarios:
         print("{}: {}".format(e.object_id, e.json))
 
+    # see if there are any buddies
+    def test_covers(entities):
+        for e in entities:
+            if e.buddy:
+                print(f"buddies found: {e.name} --> buddy {e.buddy.name}")
+
+    test_covers(entities)
+
+
     def get_entity(entities, name):
         for e in entities:
             if e.name == name:

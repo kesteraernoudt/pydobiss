@@ -97,6 +97,15 @@ class DobissEntity:
         self._value = None
         self._dobiss = dobiss
         self._callbacks = set()
+        self._buddy = None
+
+    @property
+    def buddy(self):
+        """Buddies share the same name, and have an up/down icon"""
+        return self._buddy
+    
+    def set_buddy(self, entity):
+        self._buddy = entity
 
     def update_from_discovery(self, entity):
         self._json = entity.json
@@ -515,6 +524,16 @@ class DobissAPI:
             else:
                 # a new device - add this to the list
                 self._devices.append(dev)
+        # search for buddies
+        for device in self._devices:
+            if device.icons_id == DOBISS_UP:
+                # look for a corresponding buddy
+                for buddy in self._devices:
+                    if buddy.name == device.name and buddy.icons_id == DOBISS_DOWN:
+                        # we founda buddy
+                        buddy.set_buddy(device)
+                        device.set_buddy(buddy)
+
         return self._devices
 
     def get_devices_by_type(self, dev_type):
@@ -532,7 +551,7 @@ class DobissAPI:
             if device.object_id == dev_id:
                 return device
         return None
-
+    
     async def update_from_status(self, status):
         for e in self._devices:
             await e.update_from_global(status)
