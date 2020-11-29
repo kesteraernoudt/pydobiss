@@ -527,12 +527,13 @@ class DobissAPI:
 
         def get_buddy_name(s):
             buddy_pairs = [
-                {'op', 'neer'},
-                {'open', 'dicht'}
+                (' op', ' neer'),
+                (' open', ' dicht')
             ]
             for suffix, buddysuffix in buddy_pairs:
                 if s.endswith(suffix):
-                    return f"{s[:-len(suffix)]}{buddysuffix}"
+                    buddyname = f"{s[:-len(suffix)]}{buddysuffix}"
+                    return buddyname
             return s
 
         # search for buddies
@@ -542,9 +543,12 @@ class DobissAPI:
                 buddyname = get_buddy_name(device.name)
                 for buddy in self._devices:
                     if buddy.name == buddyname and buddy.icons_id == DOBISS_DOWN:
-                        # we founda buddy
+                        # we found a buddy
                         buddy.set_buddy(device)
                         device.set_buddy(buddy)
+                        logger.debug(f"buddy for {device.name} found")
+                if not device._buddy:
+                    logger.warn(f"No buddy for {device.name} found")
 
         return self._devices
 
