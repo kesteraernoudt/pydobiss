@@ -524,12 +524,24 @@ class DobissAPI:
             else:
                 # a new device - add this to the list
                 self._devices.append(dev)
+
+        def get_buddy_name(s):
+            buddy_pairs = [
+                {'op', 'neer'},
+                {'open', 'dicht'}
+            ]
+            for suffix, buddysuffix in buddy_pairs:
+                if s.endswith(suffix):
+                    return f"{s[:-len(suffix)]}{buddysuffix}"
+            return s
+
         # search for buddies
         for device in self._devices:
             if device.icons_id == DOBISS_UP:
                 # look for a corresponding buddy
+                buddyname = get_buddy_name(device.name)
                 for buddy in self._devices:
-                    if buddy.name == device.name and buddy.icons_id == DOBISS_DOWN:
+                    if buddy.name == buddyname and buddy.icons_id == DOBISS_DOWN:
                         # we founda buddy
                         buddy.set_buddy(device)
                         device.set_buddy(buddy)
