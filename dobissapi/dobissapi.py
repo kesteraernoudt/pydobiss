@@ -468,9 +468,7 @@ class DobissAPI:
                 )
                 if group["group"]["id"] != 0:
                     # skip first group - nothing of interest in there...
-                    if str(subject["icons_id"]) == str(
-                        DOBISS_LIGHT
-                    ):  # check for lights
+                    if str(subject["icons_id"]) == str(DOBISS_LIGHT) or str(subject["icons_id"]) == str(DOBISS_TABLELIGHT):  # check for lights
                         new_devices.append(
                             DobissLight(self, subject, group["group"]["name"])
                         )
