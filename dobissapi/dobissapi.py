@@ -103,7 +103,7 @@ class DobissEntity:
     def buddy(self):
         """Buddies share the same name, and have an up/down icon"""
         return self._buddy
-    
+
     def set_buddy(self, entity):
         self._buddy = entity
 
@@ -183,31 +183,31 @@ class DobissEntity:
         for callback in self._callbacks:
             callback()
 
-    async def push(self, val):
+    async def push(self, val, force = False):
         """when an external status udate happened, and you want to update the internal value"""
-        if self._value != val:
+        if force or self._value != val:
             logger.debug(f"Updated {self._name} to {val}")
             self._value = val
             await self.publish_updates()
 
-    async def update_from_global(self, status):
+    async def update_from_global(self, status, force = False):
         """when an external status udate happened, and you want to update the internal value and parse the update data here to fetch what is needed"""
         try:
             if str(self.address) in status:
                 line = status[str(self.address)]
                 if type(line) == list and len(status[str(self.address)]) > self.channel:
-                    await self.push(status[str(self.address)][self.channel])
+                    await self.push(status[str(self.address)][self.channel], force)
                 elif (
                     type(line) == dict
                     and str(self.channel) in status[str(self.address)]
                 ):
                     if self.address == DOBISS_TEMPERATURE:
                         await self.push(
-                            float(status[str(self.address)][str(self.channel)]["temp"])
+                            float(status[str(self.address)][str(self.channel)]["temp"]), force
                         )
                     else:
                         await self.push(
-                            int(status[str(self.address)][str(self.channel)])
+                            int(status[str(self.address)][str(self.channel)]), force
                         )
                 # else:
                 #    logger.debug(f"{self.name} not found in status update")
@@ -565,16 +565,16 @@ class DobissAPI:
             if device.object_id == dev_id:
                 return device
         return None
-    
-    async def update_from_status(self, status):
-        for e in self._devices:
-            await e.update_from_global(status)
 
-    async def update_all(self):
+    async def update_from_status(self, status, force = False):
+        for e in self._devices:
+            await e.update_from_global(status, force)
+
+    async def update_all(self, force = False):
         response = await self.status()
         status = await response.json()
         logger.debug("Status response: {}".format(status))
-        await self.update_from_status(status["status"])
+        await self.update_from_status(status["status"], force)
 
     async def listen_for_dobiss(self):
         while not self._stop_monitoring:
