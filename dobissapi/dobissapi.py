@@ -458,13 +458,7 @@ class DobissAPI:
         for group in discovered_devices["groups"]:
             for subject in group["subjects"]:
                 logger.debug(
-                    "Discovered {}: addr {}; channel {}; type {}; icon {}".format(
-                        subject["name"],
-                        subject["address"],
-                        subject["channel"],
-                        subject["type"],
-                        subject["icons_id"],
-                    )
+                    f"Group {group['group']['id']} Discovered {subject['name']}: addr {subject['address']}; channel {subject['channel']}; type {subject['type']}; icon {subject['icons_id']}"
                 )
                 if group["group"]["id"] != 0:
                     # skip first group - nothing of interest in there...
@@ -511,10 +505,15 @@ class DobissAPI:
                         new_devices.append(
                             DobissTempSensor(self, subject, group["group"]["name"])
                         )
-                    elif str(subject["type"]) == str(DOBISS_TYPE_NXT):  # lightcell
-                        new_devices.append(
-                            DobissLightSensor(self, subject, group["group"]["name"])
-                        )
+                    elif str(subject["type"]) == str(DOBISS_TYPE_NXT):  # lightcell or input contact
+                        if (str(subject["icons_id"]) == str(DOBISS_LIGHTSENSOR)):
+                            new_devices.append(
+                                DobissLightSensor(self, subject, group["group"]["name"])
+                            )
+                        elif (str(subject["icons_id"]) == str(DOBISS_INPUTSTATUS)):
+                            new_devices.append(
+                                DobissBinarySensor(self, subject, group["group"]["name"])
+                            )
         for dev in new_devices:
             existing_dev = self.get_device_by_id(dev.object_id)
             if existing_dev:
