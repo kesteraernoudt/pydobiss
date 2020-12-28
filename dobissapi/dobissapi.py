@@ -79,43 +79,15 @@ DOBISS_TYPE_TEMPERATURE = 204
 DOBISS_TYPE_AUDIO = 205
 DOBISS_TYPE_FLAG = 206
 
-class TempAttributes:
-    """ all attributes that are sent with status updates of temperature zones """
-    def __init__(self, status = None):
-        self.json = status
-        if status != None:
-            try:
-                self.status = status["status"]
-                self.asked = float(status["asked"]) if status["asked"] != None else None
-                self.time = status["time"]
-                self.calendar = status["calendar"]
-                self.cooling_status = status["cooling_status"]
-                self.cooling_asked = status["cooling_asked"]
-                self.cooling_time = status["cooling_time"]
-            except Exception:
-                logger.exception(f"Error parsing temperature attributes {status}")
-
-
-    def __eq__(self, other): 
-        if not isinstance(other, TempAttributes):
-            # don't attempt to compare against unrelated types
-            return NotImplemented
-
-        return (
-            self.status == other.status and
-             self.asked == other.asked and
-             self.time == other.time and
-             self.calendar == other.calendar and
-             self.cooling_status == other.cooling_status and
-             self.cooling_asked == other.cooling_asked and
-             self.cooling_time == other.cooling_time)
-
 class DobissEntity:
     """ a generic Dobiss Entity, can be a light, switch, sensor, etc... """
 
     def __init__(self, dobiss, data, groupname):
         """ Initialize a DobissLight """
         self._json = data
+        self._attributes = dict()
+        self._attributes["dobiss_group"] = groupname
+        self._attributes.update(data)
         self._groupname = groupname
         self._name = data["name"]
         self._address = int(data["address"])
@@ -128,12 +100,16 @@ class DobissEntity:
         self._dobiss = dobiss
         self._callbacks = set()
         self._buddy = None
-        self._tempattributes = None
 
     @property
     def buddy(self):
         """Buddies share the same name, and have an up/down icon"""
         return self._buddy
+
+    @property
+    def attributes(self):
+        """Return all attributes of this entity"""
+        return self._attributes
 
     def set_buddy(self, entity):
         self._buddy = entity
@@ -223,19 +199,16 @@ class DobissEntity:
 
     async def push(self, status, force = False):
         """when an external status udate happened, and you want to update the internal value"""
-        tempattributes = None
+        attributes = self._attributes
         if self.address == DOBISS_TEMPERATURE:
             val = float(status["temp"])
-            tempattributes = TempAttributes(status)
+            attributes.update(status)
         else:
             val = int(status)
-        if force or self._value != val or self._tempattributes != tempattributes:
+        if force or self._value != val or self._attributes != attributes:
             self._value = val
-            self._tempattributes = tempattributes
-            attr_str = ""
-            if self._tempattributes != None:
-                attr_str = f" with attributes {self._tempattributes.json}"
-            logger.debug(f"Updated {self._name} to {val}{attr_str}")
+            self._attributes = attributes
+            logger.debug(f"Updated {self._name} to {val} {self._attributes}")
             await self.publish_updates()
 
     async def update_from_global(self, status, force = False):
