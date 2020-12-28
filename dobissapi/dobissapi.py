@@ -79,6 +79,36 @@ DOBISS_TYPE_TEMPERATURE = 204
 DOBISS_TYPE_AUDIO = 205
 DOBISS_TYPE_FLAG = 206
 
+class TempAttributes:
+    """ all attributes that are sent with status updates of temperature zones """
+    def __init__(self, status = None):
+        self.json = status
+        if status != None:
+            try:
+                self.status = status["status"]
+                self.asked = float(status["asked"]) if status["asked"] != None else None
+                self.time = status["time"]
+                self.calendar = status["calendar"]
+                self.cooling_status = status["cooling_status"]
+                self.cooling_asked = status["cooling_asked"]
+                self.cooling_time = status["cooling_time"]
+            except Exception:
+                logger.exception(f"Error parsing temperature attributes {status}")
+
+
+    def __eq__(self, other): 
+        if not isinstance(other, TempAttributes):
+            # don't attempt to compare against unrelated types
+            return NotImplemented
+
+        return (
+            self.status == other.status and
+             self.asked == other.asked and
+             self.time == other.time and
+             self.calendar == other.calendar and
+             self.cooling_status == other.cooling_status and
+             self.cooling_asked == other.cooling_asked and
+             self.cooling_time == other.cooling_time)
 
 class DobissEntity:
     """ a generic Dobiss Entity, can be a light, switch, sensor, etc... """
@@ -98,6 +128,7 @@ class DobissEntity:
         self._dobiss = dobiss
         self._callbacks = set()
         self._buddy = None
+        self._tempattributes = None
 
     @property
     def buddy(self):
@@ -183,11 +214,28 @@ class DobissEntity:
         for callback in self._callbacks:
             callback()
 
-    async def push(self, val, force = False):
+#'204': 
+#{
+#  '1': {'status': None, 'temp': '22.4', 'asked': None, 'time': None, 'calendar': None, 'cooling_status': None, 'cooling_asked': None, 'cooling_time': None}, 
+#  '2': {'status': None, 'temp': '6.1', 'asked': None, 'time': None, 'calendar': None, 'cooling_status': None, 'cooling_asked': None, 'cooling_time': None}
+#}
+
+
+    async def push(self, status, force = False):
         """when an external status udate happened, and you want to update the internal value"""
-        if force or self._value != val:
-            logger.debug(f"Updated {self._name} to {val}")
+        tempattributes = None
+        if self.address == DOBISS_TEMPERATURE:
+            val = float(status["temp"])
+            tempattributes = TempAttributes(status)
+        else:
+            val = int(status)
+        if force or self._value != val or self._tempattributes != tempattributes:
             self._value = val
+            self._tempattributes = tempattributes
+            attr_str = ""
+            if self._tempattributes != None:
+                attr_str = f" with attributes {self._tempattributes.json}"
+            logger.debug(f"Updated {self._name} to {val}{attr_str}")
             await self.publish_updates()
 
     async def update_from_global(self, status, force = False):
@@ -201,14 +249,7 @@ class DobissEntity:
                     type(line) == dict
                     and str(self.channel) in status[str(self.address)]
                 ):
-                    if self.address == DOBISS_TEMPERATURE:
-                        await self.push(
-                            float(status[str(self.address)][str(self.channel)]["temp"]), force
-                        )
-                    else:
-                        await self.push(
-                            int(status[str(self.address)][str(self.channel)]), force
-                        )
+                    await self.push(status[str(self.address)][str(self.channel)], force)
                 # else:
                 #    logger.debug(f"{self.name} not found in status update")
                 # logger.debug("Updated {} = {}: groupname {}; addr {}; channel {}; dimmable {}".format(self.name, self._value, self.groupname, self.address, self.channel, self.dimmable))
@@ -223,14 +264,7 @@ class DobissEntity:
         """
         response = await self._dobiss.status(self._address, self._channel)
         data = await response.json()
-        if self._address == DOBISS_TEMPERATURE:
-            val = float(data["status"]["temp"])
-        else:
-            val = int(data["status"])
-        if val != self._value:
-            self._value = val
-            await self.publish_updates()
-
+        await self.push(data["status"])
 
 class DobissOutput(DobissEntity):
     """ a generic Dobiss Output, can be a light, switch, etc... """
@@ -447,10 +481,37 @@ class DobissAPI:
         writedata = {"address": address, "channel": channel, "action": action}
         if option1 != None:
             writedata["option1"] = option1
+        await self.request(writedata)
+
+    async def request(self, data):
+        """ send a raw json request. According to the API docs, it should look like:
+            {
+                "address"   : VERPLICHT, adres van de module of het NXT actie adres (>200),
+                "channel"   : VERPLICHT, module uitgang (start bij 0) of NXT uitgang nummer (start op 1),
+                "action"    : VERPLICHT, actie id (0 = uit, 1 = aan, 2 = schakelen) // zie lijst van acties
+                "option1"   : dimmer: waarde (0-100) / audio: volume (0-100) / temperatuur: stel temperatuur in of kalender
+                "option2"   : dimmer: soft start/stop (0-254) / audio: bron / temperatuur: periode
+                "delayon"   : 
+                    {
+                    "value" : 0-120,
+                    "unit"  : "s","min" 
+                    }
+                "delayoff"  :
+                    {
+                    "value" : 0-120,
+                    "unit"  : "s","min" 
+                    }
+                "condition" : 
+                    {   
+                    "id"    : ID van de logische conditie die nagekeken moet worden voor de uitvoering,
+                    "operator": 'true' or 'false'
+                }
+            }
+        """
         headers = {"Authorization": "Bearer " + self.get_token()}
         self.start_session()
         return await self._session.post(
-            self._url + "action", headers=headers, json=writedata
+            self._url + "action", headers=headers, json=data
         )
 
     def _get_dobiss_devices(self, discovered_devices):
@@ -461,7 +522,7 @@ class DobissAPI:
                     f"Group {group['group']['id']} Discovered {subject['name']}: addr {subject['address']}; channel {subject['channel']}; type {subject['type']}; icon {subject['icons_id']}"
                 )
                 if group["group"]["id"] != 0:
-                    # skip first group - nothing of interest in there...
+                    # skip first group - nothing here which is not visible in one of the other groups below
                     if str(subject["icons_id"]) == str(DOBISS_LIGHT) or str(subject["icons_id"]) == str(DOBISS_TABLELIGHT):  # check for lights
                         new_devices.append(
                             DobissLight(self, subject, group["group"]["name"])
