@@ -199,7 +199,7 @@ class DobissEntity:
 
     async def push(self, status, force = False):
         """when an external status udate happened, and you want to update the internal value"""
-        attributes = self._attributes
+        attributes = self._attributes.copy()
         if self.address == DOBISS_TEMPERATURE:
             val = float(status["temp"])
             attributes.update(status)
