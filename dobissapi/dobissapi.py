@@ -82,7 +82,7 @@ DOBISS_TYPE_FLAG = 206
 class DobissEntity:
     """ a generic Dobiss Entity, can be a light, switch, sensor, etc... """
 
-    def __init__(self, dobiss, data, groupname):
+    def __init__(self, dobiss, data, groupname, temp_calendar = None):
         """ Initialize a DobissLight """
         self._json = data
         self._attributes = dict()
@@ -100,11 +100,17 @@ class DobissEntity:
         self._dobiss = dobiss
         self._callbacks = set()
         self._buddy = None
+        self._temp_calendar = temp_calendar
 
     @property
     def buddy(self):
         """Buddies share the same name, and have an up/down icon"""
         return self._buddy
+
+    @property
+    def temp_calendar(self):
+        """if relevant, return the possible temp_calendars"""
+        return self._temp_calendar
 
     @property
     def attributes(self):
@@ -488,6 +494,7 @@ class DobissAPI:
         )
 
     def _get_dobiss_devices(self, discovered_devices):
+        temp_calendars = discovered_devices["temp_calendars"]
         new_devices = []
         for group in discovered_devices["groups"]:
             for subject in group["subjects"]:
@@ -537,7 +544,7 @@ class DobissAPI:
                         and subject["name"] != "All zones"
                     ):  # temperature
                         new_devices.append(
-                            DobissTempSensor(self, subject, group["group"]["name"])
+                            DobissTempSensor(self, subject, group["group"]["name"], temp_calendars)
                         )
                     elif str(subject["type"]) == str(DOBISS_TYPE_NXT):  # lightcell or input contact
                         if (str(subject["icons_id"]) == str(DOBISS_LIGHTSENSOR)):
