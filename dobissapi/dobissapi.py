@@ -338,16 +338,16 @@ class DobissTempSensor(DobissSensor):
                         return cal["name"]
         return None
 
-    async def async_set_temperature(self, **kwargs):
+    async def set_temperature(self, **kwargs):
         value = kwargs.get(ATTR_TEMPERATURE, 20)
         # dobiss temperature request is (target-5)*10
         value = round((value - 5)*10)
         await self._dobiss.action(self._address, self._channel, 1, value)
 
-    async def async_set_hvac_mode(self, hvac_mode: str):
+    async def set_hvac_mode(self, hvac_mode: str):
         logger.info("todo, set havc mode")
 
-    async def async_set_preset_mode(self, preset_mode: str):
+    async def set_preset_mode(self, preset_mode: str):
         id = None
         if self._dobiss.temp_calendars != None:
             for cal in self._dobiss.temp_calendars:
