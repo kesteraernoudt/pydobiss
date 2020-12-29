@@ -79,10 +79,11 @@ DOBISS_TYPE_TEMPERATURE = 204
 DOBISS_TYPE_AUDIO = 205
 DOBISS_TYPE_FLAG = 206
 
+
 class DobissEntity:
     """ a generic Dobiss Entity, can be a light, switch, sensor, etc... """
 
-    def __init__(self, dobiss, data, groupname, temp_calendar = None):
+    def __init__(self, dobiss, data, groupname):
         """ Initialize a DobissLight """
         self._json = data
         self._attributes = dict()
@@ -100,17 +101,11 @@ class DobissEntity:
         self._dobiss = dobiss
         self._callbacks = set()
         self._buddy = None
-        self._temp_calendar = temp_calendar
 
     @property
     def buddy(self):
         """Buddies share the same name, and have an up/down icon"""
         return self._buddy
-
-    @property
-    def temp_calendar(self):
-        """if relevant, return the possible temp_calendars"""
-        return self._temp_calendar
 
     @property
     def attributes(self):
@@ -196,14 +191,13 @@ class DobissEntity:
         for callback in self._callbacks:
             callback()
 
-#'204': 
-#{
-#  '1': {'status': None, 'temp': '22.4', 'asked': None, 'time': None, 'calendar': None, 'cooling_status': None, 'cooling_asked': None, 'cooling_time': None}, 
-#  '2': {'status': None, 'temp': '6.1', 'asked': None, 'time': None, 'calendar': None, 'cooling_status': None, 'cooling_asked': None, 'cooling_time': None}
-#}
+    #'204':
+    # {
+    #  '1': {'status': None, 'temp': '22.4', 'asked': None, 'time': None, 'calendar': None, 'cooling_status': None, 'cooling_asked': None, 'cooling_time': None},
+    #  '2': {'status': None, 'temp': '6.1', 'asked': None, 'time': None, 'calendar': None, 'cooling_status': None, 'cooling_asked': None, 'cooling_time': None}
+    # }
 
-
-    async def push(self, status, force = False):
+    async def push(self, status, force=False):
         """when an external status udate happened, and you want to update the internal value"""
         attributes = self._attributes.copy()
         if self.address == DOBISS_TEMPERATURE:
@@ -217,7 +211,7 @@ class DobissEntity:
             logger.debug(f"Updated {self._name} to {val} {self._attributes}")
             await self.publish_updates()
 
-    async def update_from_global(self, status, force = False):
+    async def update_from_global(self, status, force=False):
         """when an external status udate happened, and you want to update the internal value and parse the update data here to fetch what is needed"""
         try:
             if str(self.address) in status:
@@ -244,6 +238,7 @@ class DobissEntity:
         response = await self._dobiss.status(self._address, self._channel)
         data = await response.json()
         await self.push(data["status"])
+
 
 class DobissOutput(DobissEntity):
     """ a generic Dobiss Output, can be a light, switch, etc... """
@@ -297,7 +292,7 @@ class DobissFlag(DobissSwitch):
 class DobissSensor(DobissEntity):
     """ a dobiss sensor, can be binary or not, lightswitch, temperature sensor, etc """
 
-    def __init__(self, dobiss, data, groupname):
+    def __init__(self, dobiss, data, groupname, temp_calendar=None):
         super().__init__(dobiss, data, groupname)
         if int(data["type"]) == DOBISS_TEMPERATURE:
             self._unit = "C"
@@ -305,6 +300,12 @@ class DobissSensor(DobissEntity):
             self._unit = "%"
         else:
             self._unit = None
+        self._temp_calendar = temp_calendar
+
+    @property
+    def temp_calendar(self):
+        """if relevant, return the possible temp_calendars"""
+        return self._temp_calendar
 
     @property
     def unit(self):
@@ -463,29 +464,29 @@ class DobissAPI:
         await self.request(writedata)
 
     async def request(self, data):
-        """ send a raw json request. According to the API docs, it should look like:
-            {
-                "address"   : VERPLICHT, adres van de module of het NXT actie adres (>200),
-                "channel"   : VERPLICHT, module uitgang (start bij 0) of NXT uitgang nummer (start op 1),
-                "action"    : VERPLICHT, actie id (0 = uit, 1 = aan, 2 = schakelen) // zie lijst van acties
-                "option1"   : dimmer: waarde (0-100) / audio: volume (0-100) / temperatuur: stel temperatuur in of kalender
-                "option2"   : dimmer: soft start/stop (0-254) / audio: bron / temperatuur: periode
-                "delayon"   : 
-                    {
-                    "value" : 0-120,
-                    "unit"  : "s","min" 
-                    }
-                "delayoff"  :
-                    {
-                    "value" : 0-120,
-                    "unit"  : "s","min" 
-                    }
-                "condition" : 
-                    {   
-                    "id"    : ID van de logische conditie die nagekeken moet worden voor de uitvoering,
-                    "operator": 'true' or 'false'
+        """send a raw json request. According to the API docs, it should look like:
+        {
+            "address"   : VERPLICHT, adres van de module of het NXT actie adres (>200),
+            "channel"   : VERPLICHT, module uitgang (start bij 0) of NXT uitgang nummer (start op 1),
+            "action"    : VERPLICHT, actie id (0 = uit, 1 = aan, 2 = schakelen) // zie lijst van acties
+            "option1"   : dimmer: waarde (0-100) / audio: volume (0-100) / temperatuur: stel temperatuur in of kalender
+            "option2"   : dimmer: soft start/stop (0-254) / audio: bron / temperatuur: periode
+            "delayon"   :
+                {
+                "value" : 0-120,
+                "unit"  : "s","min"
                 }
+            "delayoff"  :
+                {
+                "value" : 0-120,
+                "unit"  : "s","min"
+                }
+            "condition" :
+                {
+                "id"    : ID van de logische conditie die nagekeken moet worden voor de uitvoering,
+                "operator": 'true' or 'false'
             }
+        }
         """
         headers = {"Authorization": "Bearer " + self.get_token()}
         self.start_session()
@@ -503,7 +504,11 @@ class DobissAPI:
                 )
                 if group["group"]["id"] != 0:
                     # skip first group - nothing here which is not visible in one of the other groups below
-                    if str(subject["icons_id"]) == str(DOBISS_LIGHT) or str(subject["icons_id"]) == str(DOBISS_TABLELIGHT):  # check for lights
+                    if str(subject["icons_id"]) == str(DOBISS_LIGHT) or str(
+                        subject["icons_id"]
+                    ) == str(
+                        DOBISS_TABLELIGHT
+                    ):  # check for lights
                         new_devices.append(
                             DobissLight(self, subject, group["group"]["name"])
                         )
@@ -544,16 +549,22 @@ class DobissAPI:
                         and subject["name"] != "All zones"
                     ):  # temperature
                         new_devices.append(
-                            DobissTempSensor(self, subject, group["group"]["name"], temp_calendars)
+                            DobissTempSensor(
+                                self, subject, group["group"]["name"], temp_calendars
+                            )
                         )
-                    elif str(subject["type"]) == str(DOBISS_TYPE_NXT):  # lightcell or input contact
-                        if (str(subject["icons_id"]) == str(DOBISS_LIGHTSENSOR)):
+                    elif str(subject["type"]) == str(
+                        DOBISS_TYPE_NXT
+                    ):  # lightcell or input contact
+                        if str(subject["icons_id"]) == str(DOBISS_LIGHTSENSOR):
                             new_devices.append(
                                 DobissLightSensor(self, subject, group["group"]["name"])
                             )
-                        elif (str(subject["icons_id"]) == str(DOBISS_INPUTSTATUS)):
+                        elif str(subject["icons_id"]) == str(DOBISS_INPUTSTATUS):
                             new_devices.append(
-                                DobissBinarySensor(self, subject, group["group"]["name"])
+                                DobissBinarySensor(
+                                    self, subject, group["group"]["name"]
+                                )
                             )
         for dev in new_devices:
             existing_dev = self.get_device_by_id(dev.object_id)
@@ -564,10 +575,7 @@ class DobissAPI:
                 self._devices.append(dev)
 
         def get_buddy_name(s):
-            buddy_pairs = [
-                (' op', ' neer'),
-                (' open', ' dicht')
-            ]
+            buddy_pairs = [(" op", " neer"), (" open", " dicht")]
             for suffix, buddysuffix in buddy_pairs:
                 if s.endswith(suffix):
                     buddyname = f"{s[:-len(suffix)]}{buddysuffix}"
@@ -606,11 +614,11 @@ class DobissAPI:
                 return device
         return None
 
-    async def update_from_status(self, status, force = False):
+    async def update_from_status(self, status, force=False):
         for e in self._devices:
             await e.update_from_global(status, force)
 
-    async def update_all(self, force = False):
+    async def update_all(self, force=False):
         response = await self.status()
         status = await response.json()
         logger.debug("Status response: {}".format(status))
