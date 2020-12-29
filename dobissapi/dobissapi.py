@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 ATTR_BRIGHTNESS = "brightness"
+ATTR_TEMPERATURE = "temperature"
 
 DEF_DISCOVERY_INTERVAL = 60.0
 MIN_DISCOVERY_INTERVAL = 10.0
@@ -292,7 +293,7 @@ class DobissFlag(DobissSwitch):
 class DobissSensor(DobissEntity):
     """ a dobiss sensor, can be binary or not, lightswitch, temperature sensor, etc """
 
-    def __init__(self, dobiss, data, groupname, temp_calendar=None):
+    def __init__(self, dobiss, data, groupname):
         super().__init__(dobiss, data, groupname)
         if int(data["type"]) == DOBISS_TEMPERATURE:
             self._unit = "C"
@@ -300,12 +301,6 @@ class DobissSensor(DobissEntity):
             self._unit = "%"
         else:
             self._unit = None
-        self._temp_calendar = temp_calendar
-
-    @property
-    def temp_calendar(self):
-        """if relevant, return the possible temp_calendars"""
-        return self._temp_calendar
 
     @property
     def unit(self):
@@ -317,6 +312,50 @@ class DobissSensor(DobissEntity):
 
 class DobissTempSensor(DobissSensor):
     """ a dobiss Temperature Sensor """
+    @property
+    def asked(self):
+        if "asked" in self.attributes:
+            asked = self.attributes["asked"]
+            if asked != None:
+                return float(asked)
+        return None
+
+    @property
+    def status(self):
+        status = None
+        if "status" in self.attributes:
+            status = self.attributes["status"]
+        return status
+
+    @property
+    def calendar(self):
+        """Return the current preset mode, e.g., home, away, temp."""
+        if "calendar" in self.attributes:
+            calendar = self.attributes["calendar"]
+            if self._dobiss.temp_calendars != None:
+                for cal in self._dobiss.temp_calendars:
+                    if calendar == cal["id"]:
+                        return cal["name"]
+        return None
+
+    async def async_set_temperature(self, **kwargs):
+        value = kwargs.get(ATTR_TEMPERATURE, 20)
+        # dobiss temperature request is (target-5)*10
+        value = round((value - 5)*10)
+        await self._dobiss.action(self._address, self._channel, 1, value)
+
+    async def async_set_hvac_mode(self, hvac_mode: str):
+        logger.info("todo, set havc mode")
+
+    async def async_set_preset_mode(self, preset_mode: str):
+        id = None
+        if self._dobiss.temp_calendars != None:
+            for cal in self._dobiss.temp_calendars:
+                if preset_mode == cal["name"]:
+                    id = cal["id"]
+                    break
+        if id != None:
+            await self._dobiss.action(self._address, self._channel, 110, id)
 
 
 class DobissBinarySensor(DobissSensor):
@@ -353,6 +392,7 @@ class DobissAPI:
         self._stop_monitoring = True
         self._callbacks = set()
         self._session = None
+        self._temp_calendars = []
 
     @property
     def session(self):
@@ -362,6 +402,18 @@ class DobissAPI:
     @property
     def host(self):
         return self._host
+
+    @property
+    def temp_calendars(self):
+        return self._temp_calendars
+
+    @property
+    def calendars(self):
+        calendars = []
+        if self._temp_calendars != None:
+            for cal in self._temp_calendars:
+                calendars.append(cal["name"])
+        return calendars
 
     def start_session(self):
         if not self._session or self._session.closed:
@@ -457,10 +509,12 @@ class DobissAPI:
         self.start_session()
         return await self._session.get(self._url + "status", headers=headers, json=data)
 
-    async def action(self, address, channel, action, option1=None):
+    async def action(self, address, channel, action, option1=None, option2=None):
         writedata = {"address": address, "channel": channel, "action": action}
         if option1 != None:
             writedata["option1"] = option1
+        if option2 != None:
+            writedata["option2"] = option2
         await self.request(writedata)
 
     async def request(self, data):
@@ -495,7 +549,7 @@ class DobissAPI:
         )
 
     def _get_dobiss_devices(self, discovered_devices):
-        temp_calendars = discovered_devices["temp_calendars"]
+        self._temp_calendars = discovered_devices["temp_calendars"]
         new_devices = []
         for group in discovered_devices["groups"]:
             for subject in group["subjects"]:
@@ -550,7 +604,7 @@ class DobissAPI:
                     ):  # temperature
                         new_devices.append(
                             DobissTempSensor(
-                                self, subject, group["group"]["name"], temp_calendars
+                                self, subject, group["group"]["name"]
                             )
                         )
                     elif str(subject["type"]) == str(
