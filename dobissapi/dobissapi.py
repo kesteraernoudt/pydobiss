@@ -328,6 +328,13 @@ class DobissTempSensor(DobissSensor):
         return status
 
     @property
+    def time(self):
+        time = None
+        if "time" in self.attributes:
+            time = self.attributes["time"]
+        return time
+
+    @property
     def calendar(self):
         """Return the current preset mode, e.g., home, away, temp."""
         if "calendar" in self.attributes:
