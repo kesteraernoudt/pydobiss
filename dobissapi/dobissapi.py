@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+from aiohttp.helpers import noop
 import jwt
 import aiohttp
 from datetime import datetime, timedelta
@@ -329,6 +330,7 @@ class DobissTempSensor(DobissSensor):
 
     @property
     def time(self):
+        # from the dobiss NXT user interface: if time == -15 --> forever; if time == -30 --> calendar; else minutes
         time = None
         if "time" in self.attributes:
             time = self.attributes["time"]
@@ -345,14 +347,24 @@ class DobissTempSensor(DobissSensor):
                         return cal["name"]
         return None
 
-    async def set_temperature(self, **kwargs):
-        value = kwargs.get(ATTR_TEMPERATURE, 20)
-        # dobiss temperature request is (target-5)*10
-        value = round((value - 5)*10)
-        await self._dobiss.action(self._address, self._channel, 1, value)
+    @property
+    def manual_mode(self):
+        # time == -30 means automatic mode
+        return self.time != -30
 
-    async def set_hvac_mode(self, hvac_mode: str):
-        logger.info("todo, set havc mode")
+    async def set_temperature(self, temp):
+        # if we explicitly set a temperature, and the mode is currently auto, switch to manual mode
+        time = self.time
+        if not self.manual_mode:
+            time = 30
+        await self.set_temp_timer(temperature=temp, minutes=time)
+
+    async def set_manual_mode(self, manual = True):
+        if manual:
+            if not self.manual_mode:
+                await self.set_temp_timer(minutes = 30)
+        else:
+            await self.set_temp_timer(minutes = -30)
 
     async def set_preset_mode(self, preset_mode: str):
         id = None
@@ -364,6 +376,41 @@ class DobissTempSensor(DobissSensor):
         if id != None:
             await self._dobiss.action(self._address, self._channel, 110, id)
 
+    async def set_timer(self, minutes):
+        await self.set_temp_timer(minutes = minutes)
+
+    async def set_temp_timer(self, temperature = None, minutes = None):
+        if temperature == None:
+            temperature = self.asked
+        if minutes == None:
+            minutes = self.time
+        # dobiss temperature request is (target-5)*10
+        temperature = round((temperature - 5)*10)
+        action = 1
+        # dobiss time period from 0-1425 minutes to 0-95 quarters (of an hour)
+        #switch (time) {
+		#case -15: 
+		#	// Indefinite time
+		#	time = 0xFE;
+		#	break;
+		#case -30:
+		#	// Reset to calendar
+		#	action = 0;
+		#	break;
+		#default:
+		#	// Convert time to 15 minutes
+		#	time = time / 15;
+		#	break;
+        time = 0
+        if minutes == -15:
+            # forever
+            time = 0xFE
+        elif minutes == -30:
+            # reset to calendar
+            action = 0
+        else:
+            time = round(minutes / 15)
+        await self._dobiss.action(self._address, self._channel, action, temperature, time)
 
 class DobissBinarySensor(DobissSensor):
     """ a dobiss Binary Sensor """
