@@ -306,12 +306,7 @@ class DobissSensor(DobissEntity):
 
     def __init__(self, dobiss, data, groupname):
         super().__init__(dobiss, data, groupname)
-        if int(data["type"]) == DOBISS_TEMPERATURE:
-            self._unit = "C"
-        elif int(data["type"]) == 0:
-            self._unit = "%"
-        else:
-            self._unit = None
+        self._unit = None
 
     @property
     def unit(self):
@@ -323,6 +318,11 @@ class DobissSensor(DobissEntity):
 
 class DobissTempSensor(DobissSensor):
     """ a dobiss Temperature Sensor """
+
+    def __init__(self, dobiss, data, groupname):
+        super().__init__(dobiss, data, groupname)
+        self._unit = "C"
+        self._default_time = 30
 
     @property
     def asked(self):
@@ -359,18 +359,26 @@ class DobissTempSensor(DobissSensor):
         # time == -30 means automatic mode
         return self.time != -30
 
+    @property
+    def default_time(self):
+        return self._default_time if self._default_time is not None else 30
+
+    def set_default_time(self, minutes=30):
+        # dobiss default timer seems to be 30 minutes...
+        self._default_time = minutes
+
     async def set_temperature(self, temp):
         # if we explicitly set a temperature,
         #  and the mode is currently auto, switch to manual mode
         time = self.time
         if not self.manual_mode:
-            time = 30
+            time = self.default_time
         await self.set_temp_timer(temperature=temp, minutes=time)
 
     async def set_manual_mode(self, manual=True):
         if manual:
             if not self.manual_mode:
-                await self.set_temp_timer(minutes=30)
+                await self.set_temp_timer(minutes=self.default_time)
         else:
             await self.set_temp_timer(minutes=-30)
 
@@ -395,7 +403,7 @@ class DobissTempSensor(DobissSensor):
         if minutes is None:
             minutes = self.time
         if minutes is None:
-            minutes = 30
+            minutes = self.default_time
         # dobiss temperature request is (target-5)*10
         temperature = round((temperature - 5) * 10)
         action = 1
@@ -433,6 +441,10 @@ class DobissBinarySensor(DobissSensor):
 
 class DobissLightSensor(DobissSensor):
     """ a dobiss Light Sensor """
+
+    def __init__(self, dobiss, data, groupname):
+        super().__init__(dobiss, data, groupname)
+        self._unit = "%"
 
 
 class DobissAPI:
