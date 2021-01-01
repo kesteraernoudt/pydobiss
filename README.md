@@ -1,10 +1,8 @@
-pydobiss Module Repository
-==========================
+# pydobiss Module Repository
 
 ## pydobiss
 
 dobissapi is a python library that allows you to use [dobiss's api](http://support.dobiss.com/books/nl-dobiss-nxt/page/developer-api).
-
 
 ## Install
 
@@ -103,4 +101,3 @@ except KeyboardInterrupt:
 ## Author
 
 Kester (kesteraernoudt@yahoo.com)
-

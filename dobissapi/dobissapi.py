@@ -1,14 +1,12 @@
 # -*- coding: utf-8 -*-
-
-from aiohttp.helpers import noop
-import jwt
-import aiohttp
-from datetime import datetime, timedelta
 import asyncio
-import json
 import logging
+from datetime import datetime
+from datetime import timedelta
 
-logging.basicConfig()
+import aiohttp
+import jwt
+
 logger = logging.getLogger(__name__)
 # logger.setLevel(logging.DEBUG)
 logger.setLevel(logging.INFO)
@@ -104,6 +102,15 @@ class DobissEntity:
         self._callbacks = set()
         self._buddy = None
 
+    def update_from_discovery(self, entity):
+        self._json = entity.json
+        self._groupname = entity.groupname
+        self._name = entity.name
+        self._dimmable = entity.dimmable
+        self._icons_id = entity.icons_id
+        self._type = entity.type
+        self._attributes.update(entity.attributes)
+
     @property
     def buddy(self):
         """Buddies share the same name, and have an up/down icon"""
@@ -116,14 +123,6 @@ class DobissEntity:
 
     def set_buddy(self, entity):
         self._buddy = entity
-
-    def update_from_discovery(self, entity):
-        self._json = entity.json
-        self._groupname = entity.groupname
-        self._name = entity.name
-        self._dimmable = entity.dimmable
-        self._icons_id = entity.icons_id
-        self._type = entity.type
 
     @property
     def name(self):
@@ -178,7 +177,7 @@ class DobissEntity:
     @property
     def is_on(self):
         """Return true if entity is on."""
-        return self._value != None and self._value > 0
+        return self._value is not None and self._value > 0
 
     def register_callback(self, callback):
         """Register callback, called when changes state."""
@@ -193,17 +192,23 @@ class DobissEntity:
         for callback in self._callbacks:
             callback()
 
-    #'204':
+    # '204':
     # {
-    #  '1': {'status': None, 'temp': '22.4', 'asked': None, 'time': None, 'calendar': None, 'cooling_status': None, 'cooling_asked': None, 'cooling_time': None},
-    #  '2': {'status': None, 'temp': '6.1', 'asked': None, 'time': None, 'calendar': None, 'cooling_status': None, 'cooling_asked': None, 'cooling_time': None}
+    #  '1': {'status': None, 'temp': '22.4', 'asked': None,
+    #  'time': None, 'calendar': None, 'cooling_status': None,
+    #  'cooling_asked': None, 'cooling_time': None},
+    #  '2': {'status': None, 'temp': '6.1', 'asked': None,
+    #  'time': None, 'calendar': None, 'cooling_status': None,
+    #  'cooling_asked': None, 'cooling_time': None}
     # }
 
     async def push(self, status, force=False):
-        """when an external status udate happened, and you want to update the internal value"""
-        attributes = self._attributes.copy()
+        """when an external status udate happened,
+        and you want to update the internal value"""
+        attributes = self._attributes
         if self.address == DOBISS_TEMPERATURE:
             val = float(status["temp"])
+            attributes = self._attributes.copy()
             attributes.update(status)
         else:
             val = int(status)
@@ -214,7 +219,9 @@ class DobissEntity:
             await self.publish_updates()
 
     async def update_from_global(self, status, force=False):
-        """when an external status udate happened, and you want to update the internal value and parse the update data here to fetch what is needed"""
+        """when an external status udate happened,
+        and you want to update the internal value
+         and parse the update data here to fetch what is needed"""
         try:
             if str(self.address) in status:
                 line = status[str(self.address)]
@@ -227,9 +234,11 @@ class DobissEntity:
                     await self.push(status[str(self.address)][str(self.channel)], force)
                 # else:
                 #    logger.debug(f"{self.name} not found in status update")
-                # logger.debug("Updated {} = {}: groupname {}; addr {}; channel {}; dimmable {}".format(self.name, self._value, self.groupname, self.address, self.channel, self.dimmable))
+                # logger.debug("Updated {} = {}: groupname {}; addr {};
+                #  channel {}; dimmable {}".format(self.name, self._value,
+                #  self.groupname, self.address, self.channel, self.dimmable))
             # else:
-            #    logger.debug("{} not found in status update".format(self.name))
+            #    logger.debug("{} not found in update".format(self.name))
         except Exception:
             logger.exception("Error trying to update {}".format(self.name))
 
@@ -292,7 +301,8 @@ class DobissFlag(DobissSwitch):
 
 
 class DobissSensor(DobissEntity):
-    """ a dobiss sensor, can be binary or not, lightswitch, temperature sensor, etc """
+    """a dobiss sensor, can be binary or not,
+    lightswitch, temperature sensor, etc"""
 
     def __init__(self, dobiss, data, groupname):
         super().__init__(dobiss, data, groupname)
@@ -313,35 +323,32 @@ class DobissSensor(DobissEntity):
 
 class DobissTempSensor(DobissSensor):
     """ a dobiss Temperature Sensor """
+
     @property
     def asked(self):
-        if "asked" in self.attributes:
-            asked = self.attributes["asked"]
-            if asked != None:
-                return float(asked)
+        asked = self.attributes.get("asked")
+        if asked is not None:
+            return float(asked)
         return None
 
     @property
     def status(self):
-        status = None
-        if "status" in self.attributes:
-            status = self.attributes["status"]
-        return status
+        return self.attributes.get("status")
 
     @property
     def time(self):
-        # from the dobiss NXT user interface: if time == -15 --> forever; if time == -30 --> calendar; else minutes
-        time = None
-        if "time" in self.attributes:
-            time = self.attributes["time"]
-        return time
+        # from the dobiss NXT user interface:
+        #  if time == -15 --> forever;
+        #  if time == -30 --> calendar;
+        #  else minutes
+        return self.attributes.get("time")
 
     @property
     def calendar(self):
         """Return the current preset mode, e.g., home, away, temp."""
         if "calendar" in self.attributes:
             calendar = self.attributes["calendar"]
-            if self._dobiss.temp_calendars != None:
+            if self._dobiss.temp_calendars is not None:
                 for cal in self._dobiss.temp_calendars:
                     if calendar == cal["id"]:
                         return cal["name"]
@@ -353,54 +360,59 @@ class DobissTempSensor(DobissSensor):
         return self.time != -30
 
     async def set_temperature(self, temp):
-        # if we explicitly set a temperature, and the mode is currently auto, switch to manual mode
+        # if we explicitly set a temperature,
+        #  and the mode is currently auto, switch to manual mode
         time = self.time
         if not self.manual_mode:
             time = 30
         await self.set_temp_timer(temperature=temp, minutes=time)
 
-    async def set_manual_mode(self, manual = True):
+    async def set_manual_mode(self, manual=True):
         if manual:
             if not self.manual_mode:
-                await self.set_temp_timer(minutes = 30)
+                await self.set_temp_timer(minutes=30)
         else:
-            await self.set_temp_timer(minutes = -30)
+            await self.set_temp_timer(minutes=-30)
 
     async def set_preset_mode(self, preset_mode: str):
         id = None
-        if self._dobiss.temp_calendars != None:
+        if self._dobiss.temp_calendars is not None:
             for cal in self._dobiss.temp_calendars:
                 if preset_mode == cal["name"]:
                     id = cal["id"]
                     break
-        if id != None:
+        if id is not None:
             await self._dobiss.action(self._address, self._channel, 110, id)
 
     async def set_timer(self, minutes):
-        await self.set_temp_timer(minutes = minutes)
+        await self.set_temp_timer(minutes=minutes)
 
-    async def set_temp_timer(self, temperature = None, minutes = None):
-        if temperature == None:
+    async def set_temp_timer(self, temperature=None, minutes=None):
+        if temperature is None:
             temperature = self.asked
-        if minutes == None:
+        if temperature is None:
+            temperature = 18
+        if minutes is None:
             minutes = self.time
+        if minutes is None:
+            minutes = 30
         # dobiss temperature request is (target-5)*10
-        temperature = round((temperature - 5)*10)
+        temperature = round((temperature - 5) * 10)
         action = 1
         # dobiss time period from 0-1425 minutes to 0-95 quarters (of an hour)
-        #switch (time) {
-		#case -15: 
-		#	// Indefinite time
-		#	time = 0xFE;
-		#	break;
-		#case -30:
-		#	// Reset to calendar
-		#	action = 0;
-		#	break;
-		#default:
-		#	// Convert time to 15 minutes
-		#	time = time / 15;
-		#	break;
+        # switch (time) {
+        # case -15:
+        # 	// Indefinite time
+        # 	time = 0xFE;
+        # 	break;
+        # case -30:
+        # 	// Reset to calendar
+        # 	action = 0;
+        # 	break;
+        # default:
+        # 	// Convert time to 15 minutes
+        # 	time = time / 15;
+        # 	break;
         time = 0
         if minutes == -15:
             # forever
@@ -410,7 +422,10 @@ class DobissTempSensor(DobissSensor):
             action = 0
         else:
             time = round(minutes / 15)
-        await self._dobiss.action(self._address, self._channel, action, temperature, time)
+        await self._dobiss.action(
+            self._address, self._channel, action, temperature, time
+        )
+
 
 class DobissBinarySensor(DobissSensor):
     """ a dobiss Binary Sensor """
@@ -464,7 +479,7 @@ class DobissAPI:
     @property
     def calendars(self):
         calendars = []
-        if self._temp_calendars != None:
+        if self._temp_calendars is not None:
             for cal in self._temp_calendars:
                 calendars.append(cal["name"])
         return calendars
@@ -491,7 +506,7 @@ class DobissAPI:
             ) as response:
                 if response and response.status == 200:
                     auth_ok = True
-        except:
+        except Exception:
             logger.exception("Äuthenticating Dobiss failed")
         finally:
             await self._session.close()
@@ -555,9 +570,9 @@ class DobissAPI:
 
     async def status(self, address=None, channel=None):
         data = {}
-        if address != None:
+        if address is not None:
             data["address"] = address
-        if channel != None:
+        if channel is not None:
             data["channel"] = channel
         headers = {"Authorization": "Bearer " + self.get_token()}
         self.start_session()
@@ -565,9 +580,9 @@ class DobissAPI:
 
     async def action(self, address, channel, action, option1=None, option2=None):
         writedata = {"address": address, "channel": channel, "action": action}
-        if option1 != None:
+        if option1 is not None:
             writedata["option1"] = option1
-        if option2 != None:
+        if option2 is not None:
             writedata["option2"] = option2
         await self.request(writedata)
 
@@ -608,7 +623,8 @@ class DobissAPI:
         for group in discovered_devices["groups"]:
             for subject in group["subjects"]:
                 logger.debug(
-                    f"Group {group['group']['id']} Discovered {subject['name']}: addr {subject['address']}; channel {subject['channel']}; type {subject['type']}; icon {subject['icons_id']}"
+                    f"Group {group['group']['id']} Discovered {subject['name']}: addr {subject['address']}; \
+                        channel {subject['channel']}; type {subject['type']}; icon {subject['icons_id']}"
                 )
                 if group["group"]["id"] != 0:
                     # skip first group - nothing here which is not visible in one of the other groups below
@@ -657,9 +673,7 @@ class DobissAPI:
                         and subject["name"] != "All zones"
                     ):  # temperature
                         new_devices.append(
-                            DobissTempSensor(
-                                self, subject, group["group"]["name"]
-                            )
+                            DobissTempSensor(self, subject, group["group"]["name"])
                         )
                     elif str(subject["type"]) == str(
                         DOBISS_TYPE_NXT
@@ -758,12 +772,12 @@ class DobissAPI:
                         )
                         self._stop_monitoring = True
                         break
-                    except:
-                        logger.exception(f"Status update exception")
+                    except Exception:
+                        logger.exception("Status update exception")
                         if not ws.closed:
                             await ws.close()
                         break
-            except:
+            except Exception:
                 logger.exception("Failed to connect, waiting a bit before retrying")
                 await asyncio.sleep(10)
 
