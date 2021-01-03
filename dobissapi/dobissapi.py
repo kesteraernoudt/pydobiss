@@ -363,9 +363,11 @@ class DobissTempSensor(DobissSensor):
     def default_time(self):
         return self._default_time if self._default_time is not None else 30
 
-    def set_default_time(self, minutes=30):
+    async def set_default_time(self, minutes=30):
         # dobiss default timer seems to be 30 minutes...
-        self._default_time = minutes
+        if self._default_time != minutes:
+            self._default_time = minutes
+            await self.publish_updates()
 
     async def set_temperature(self, temp):
         # if we explicitly set a temperature,
