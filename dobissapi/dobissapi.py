@@ -11,9 +11,6 @@ logger = logging.getLogger(__name__)
 # logger.setLevel(logging.DEBUG)
 logger.setLevel(logging.INFO)
 
-ATTR_BRIGHTNESS = "brightness"
-ATTR_TEMPERATURE = "temperature"
-
 DEF_DISCOVERY_INTERVAL = 60.0
 MIN_DISCOVERY_INTERVAL = 10.0
 
@@ -260,18 +257,20 @@ class DobissOutput(DobissEntity):
         else:
             await self.turn_on()
 
-    async def turn_on(self, **kwargs):
+    async def turn_on(self, brightness=100, delayon=None, delayoff=None):
         """Instruct the entity to turn on.
         You can skip the brightness part if your entity does not support
         brightness control.
         """
         if self._dimmable:
-            value = kwargs.get(ATTR_BRIGHTNESS, 100)
+            value = brightness
         else:
             value = 1
-        await self._dobiss.action(self._address, self._channel, 1, value)
+        await self._dobiss.action(
+            self._address, self._channel, 1, value, delayon=delayon, delayoff=delayoff
+        )
 
-    async def turn_off(self, **kwargs):
+    async def turn_off(self):
         """Instruct the entity to turn off."""
         await self._dobiss.action(self._address, self._channel, 0)
 
@@ -592,12 +591,30 @@ class DobissAPI:
         self.start_session()
         return await self._session.get(self._url + "status", headers=headers, json=data)
 
-    async def action(self, address, channel, action, option1=None, option2=None):
+    async def action(
+        self,
+        address,
+        channel,
+        action,
+        option1=None,
+        option2=None,
+        delayon=None,
+        delayoff=None,
+    ):
         writedata = {"address": address, "channel": channel, "action": action}
         if option1 is not None:
             writedata["option1"] = option1
         if option2 is not None:
             writedata["option2"] = option2
+        if delayon is not None:
+            writedata["delayon"] = {}
+            writedata["delayon"]["value"] = delayon
+            writedata["delayon"]["unit"] = "s"
+        if delayoff is not None:
+            writedata["delayoff"] = {}
+            writedata["delayoff"]["value"] = delayoff
+            writedata["delayoff"]["unit"] = "s"
+        logger.debug(f"Sending {writedata} to dobiss server")
         await self.request(writedata)
 
     async def request(self, data):
