@@ -608,12 +608,20 @@ class DobissAPI:
             writedata["option2"] = option2
         if delayon is not None:
             writedata["delayon"] = {}
-            writedata["delayon"]["value"] = delayon
-            writedata["delayon"]["unit"] = "s"
+            if delayon <= 120:
+                writedata["delayon"]["value"] = delayon
+                writedata["delayon"]["unit"] = "s"
+            else:
+                writedata["delayon"]["value"] = min(round(delayon / 60), 120)
+                writedata["delayon"]["unit"] = "min"
         if delayoff is not None:
             writedata["delayoff"] = {}
-            writedata["delayoff"]["value"] = delayoff
-            writedata["delayoff"]["unit"] = "s"
+            if delayoff <= 120:
+                writedata["delayoff"]["value"] = delayoff
+                writedata["delayoff"]["unit"] = "s"
+            else:
+                writedata["delayoff"]["value"] = min(round(delayoff / 60), 120)
+                writedata["delayoff"]["unit"] = "min"
         logger.debug(f"Sending {writedata} to dobiss server")
         await self.request(writedata)
 
