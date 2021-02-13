@@ -96,7 +96,7 @@ class DobissEntity:
         self._object_id = "dobissid_{}_{}".format(self._address, self._channel)
         self._value = None
         self._dobiss = dobiss
-        self._callbacks = set()
+        self._callbacks = list()
         self._buddy = None
 
     def update_from_discovery(self, entity):
@@ -178,11 +178,11 @@ class DobissEntity:
 
     def register_callback(self, callback):
         """Register callback, called when changes state."""
-        self._callbacks.add(callback)
+        self._callbacks.append(callback)
 
     def remove_callback(self, callback):
         """Remove previously registered callback."""
-        self._callbacks.discard(callback)
+        self._callbacks.remove(callback)
 
     async def publish_updates(self):
         """Schedule call all registered callbacks."""
