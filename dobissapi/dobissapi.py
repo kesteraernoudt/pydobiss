@@ -797,7 +797,8 @@ class DobissAPI:
                         response = await ws.receive_json()
                         # logger.debug("received ws message")
                         logger.debug(f"Status update pushed: {response}")
-                        await self.update_from_status(response)
+                        if response is not None:
+                            await self.update_from_status(response)
                     except TypeError:
                         logger.exception("dobiss monitor exception")
                         if not ws.closed:
