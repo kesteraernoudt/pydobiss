@@ -535,7 +535,7 @@ class DobissAPI:
                     self._secret,
                     headers={"expiresIn": "24h"},
                 )
-            ).decode("utf-8")
+            )
             self._exp_time = datetime.now() + timedelta(hours=20)
         return self._token
 
