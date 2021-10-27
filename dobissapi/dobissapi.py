@@ -204,11 +204,17 @@ class DobissEntity:
         and you want to update the internal value"""
         attributes = self._attributes
         if self.address == DOBISS_TEMPERATURE:
-            val = float(status["temp"])
+            try:
+                val = float(status["temp"])
+            except ValueError:
+                val = None
             attributes = self._attributes.copy()
             attributes.update(status)
         else:
-            val = int(status)
+            if type(status) == dict:
+                val = int(status['status'])
+            else:
+                val = int(status)
         if force or self._value != val or self._attributes != attributes:
             self._value = val
             self._attributes = attributes
@@ -525,6 +531,25 @@ class DobissAPI:
             await self._session.close()
         return auth_ok
 
+    async def get_apikey(self):
+        """ Request the API key from dobiss NXT: need to enable this in the NXT server (blue button next to API key) first """
+        get_apikey_ok = False
+        try:
+            self.start_session()
+            async with self._session.get(
+                self._url + "jwtsecret"
+            ) as response:
+                if response and response.status == 200:
+                    apikey_data = await response.json()
+                    logger.debug(f"apikey response: {apikey_data}")
+                    self._secret = apikey_data["jwt_secret"]
+                    get_apikey_ok = True
+        except Exception:
+            logger.exception("Get APIKey Dobiss failed")
+        finally:
+            await self._session.close()
+        return get_apikey_ok
+        
     def get_token(self):
         """ Request a token to use in a request to the Dobiss server """
         if self._exp_time < datetime.now() + timedelta(hours=20):
