@@ -230,7 +230,10 @@ class DobissEntity:
                 line = status[str(self.address)]
                 if type(line) == list and len(status[str(self.address)]) > self.channel:
                     await self.push(status[str(self.address)][self.channel], force)
-                elif type(line) == dict and str(self.channel) in status[str(self.address)]:
+                elif (
+                    type(line) == dict
+                    and str(self.channel) in status[str(self.address)]
+                ):
                     await self.push(status[str(self.address)][str(self.channel)], force)
                 # else:
                 #    logger.debug(f"{self.name} not found in status update")
@@ -269,7 +272,9 @@ class DobissOutput(DobissEntity):
             value = brightness
         else:
             value = 1
-        await self._dobiss.action(self._address, self._channel, 1, value, delayon=delayon, delayoff=delayoff)
+        await self._dobiss.action(
+            self._address, self._channel, 1, value, delayon=delayon, delayoff=delayoff
+        )
 
     async def turn_off(self):
         """Instruct the entity to turn off."""
@@ -432,7 +437,9 @@ class DobissTempSensor(DobissSensor):
             action = 0
         else:
             time = round(minutes / 15)
-        await self._dobiss.action(self._address, self._channel, action, temperature, time)
+        await self._dobiss.action(
+            self._address, self._channel, action, temperature, time
+        )
 
 
 class DobissBinarySensor(DobissSensor):
@@ -513,7 +520,9 @@ class DobissAPI:
         auth_ok = False
         try:
             self.start_session()
-            async with self._session.get(self._url + "status", headers=headers) as response:
+            async with self._session.get(
+                self._url + "status", headers=headers
+            ) as response:
                 if response and response.status == 200:
                     auth_ok = True
         except Exception:
@@ -559,7 +568,9 @@ class DobissAPI:
     @discovery_interval.setter
     def discovery_interval(self, val):
         if val < MIN_DISCOVERY_INTERVAL:
-            raise ValueError(f"Discovery interval below {MIN_DISCOVERY_INTERVAL} seconds is invalid")
+            raise ValueError(
+                f"Discovery interval below {MIN_DISCOVERY_INTERVAL} seconds is invalid"
+            )
         self._discovery_interval = val
 
     def _call_discovery(self):
@@ -578,7 +589,9 @@ class DobissAPI:
             try:
                 headers = {"Authorization": "Bearer " + self.get_token()}
                 self.start_session()
-                response = await self._session.get(self._url + "discover", headers=headers)
+                response = await self._session.get(
+                    self._url + "discover", headers=headers
+                )
                 if response and response.status == 200:
                     discovered_devices = await response.json()
                     logger.debug(f"Discover response: {discovered_devices}")
@@ -660,7 +673,9 @@ class DobissAPI:
         """
         headers = {"Authorization": "Bearer " + self.get_token()}
         self.start_session()
-        return await self._session.post(self._url + "action", headers=headers, json=data)
+        return await self._session.post(
+            self._url + "action", headers=headers, json=data
+        )
 
     def _get_dobiss_devices(self, discovered_devices):
         self._temp_calendars = discovered_devices["temp_calendars"]
@@ -673,36 +688,73 @@ class DobissAPI:
                 )
                 if group["group"]["id"] != 0:
                     # skip first group - nothing here which is not visible in one of the other groups below
-                    if str(subject["icons_id"]) == str(DOBISS_LIGHT) or str(subject["icons_id"]) == str(
+                    if str(subject["icons_id"]) == str(DOBISS_LIGHT) or str(
+                        subject["icons_id"]
+                    ) == str(
                         DOBISS_TABLELIGHT
                     ):  # check for lights
-                        new_devices.append(DobissLight(self, subject, group["group"]["name"]))
-                    elif str(subject["type"]) == str(DOBISS_TYPE_ANALOG):  # other items connected to a 0-10V output
-                        new_devices.append(DobissAnalogOutput(self, subject, group["group"]["name"]))
-                    elif str(subject["type"]) == str(DOBISS_TYPE_RELAIS):  # other items connected to a relais
-                        new_devices.append(DobissSwitch(self, subject, group["group"]["name"]))
+                        new_devices.append(
+                            DobissLight(self, subject, group["group"]["name"])
+                        )
+                    elif str(subject["type"]) == str(
+                        DOBISS_TYPE_ANALOG
+                    ):  # other items connected to a 0-10V output
+                        new_devices.append(
+                            DobissAnalogOutput(self, subject, group["group"]["name"])
+                        )
+                    elif str(subject["type"]) == str(
+                        DOBISS_TYPE_RELAIS
+                    ):  # other items connected to a relais
+                        new_devices.append(
+                            DobissSwitch(self, subject, group["group"]["name"])
+                        )
                     elif str(subject["type"]) == str(DOBISS_TYPE_INPUT):  # status input
-                        new_devices.append(DobissBinarySensor(self, subject, group["group"]["name"]))
+                        new_devices.append(
+                            DobissBinarySensor(self, subject, group["group"]["name"])
+                        )
                     elif str(subject["type"]) == str(DOBISS_TYPE_FLAG):  # flags
-                        new_devices.append(DobissFlag(self, subject, group["group"]["name"]))
+                        new_devices.append(
+                            DobissFlag(self, subject, group["group"]["name"])
+                        )
                     elif str(subject["type"]) == str(DOBISS_TYPE_SCENARIO):  # scenarios
-                        new_devices.append(DobissScenario(self, subject, group["group"]["name"]))
-                    elif str(subject["type"]) == str(DOBISS_TYPE_AUTOMATION):  # automations
-                        new_devices.append(DobissAutomation(self, subject, group["group"]["name"]))
+                        new_devices.append(
+                            DobissScenario(self, subject, group["group"]["name"])
+                        )
+                    elif str(subject["type"]) == str(
+                        DOBISS_TYPE_AUTOMATION
+                    ):  # automations
+                        new_devices.append(
+                            DobissAutomation(self, subject, group["group"]["name"])
+                        )
                     # elif str(subject["type"]) == "203": # logical conditions
                     # 	new_devices.append(DobissSensor(self, subject, group["group"]["name"]))
                     elif (
-                        str(subject["type"]) == str(DOBISS_TYPE_TEMPERATURE) and subject["name"] != "All zones"
+                        str(subject["type"]) == str(DOBISS_TYPE_TEMPERATURE)
+                        and subject["name"] != "All zones"
                     ):  # temperature
-                        new_devices.append(DobissTempSensor(self, subject, group["group"]["name"]))
-                    elif str(subject["type"]) == str(DOBISS_TYPE_NXT):  # lightcell or input contact
+                        new_devices.append(
+                            DobissTempSensor(self, subject, group["group"]["name"])
+                        )
+                    elif str(subject["type"]) == str(
+                        DOBISS_TYPE_NXT
+                    ):  # lightcell or input contact
                         if str(subject["icons_id"]) == str(DOBISS_LIGHTSENSOR):
-                            new_devices.append(DobissLightSensor(self, subject, group["group"]["name"]))
+                            new_devices.append(
+                                DobissLightSensor(self, subject, group["group"]["name"])
+                            )
                         elif str(subject["icons_id"]) == str(DOBISS_INPUTSTATUS):
-                            new_devices.append(DobissBinarySensor(self, subject, group["group"]["name"]))
+                            new_devices.append(
+                                DobissBinarySensor(
+                                    self, subject, group["group"]["name"]
+                                )
+                            )
                         # other things connected to dobiss NXT directly?? In demo there are screens etc
-                        elif str(subject["icons_id"]) == str(DOBISS_UP) or str(subject["icons_id"]) == str(DOBISS_DOWN):
-                            new_devices.append(DobissSwitch(self, subject, group["group"]["name"]))
+                        elif str(subject["icons_id"]) == str(DOBISS_UP) or str(
+                            subject["icons_id"]
+                        ) == str(DOBISS_DOWN):
+                            new_devices.append(
+                                DobissSwitch(self, subject, group["group"]["name"])
+                            )
         for dev in new_devices:
             existing_dev = self.get_device_by_id(dev.object_id)
             if existing_dev:
@@ -731,7 +783,10 @@ class DobissAPI:
                 ):
                     buddy_channel = device.attributes["settings"]["locks"][0]
                     for buddy in self._devices:
-                        if buddy._channel == buddy_channel and buddy._address == device._address:
+                        if (
+                            buddy._channel == buddy_channel
+                            and buddy._address == device._address
+                        ):
                             buddy.set_buddy(device)
                             device.set_buddy(buddy)
                             logger.debug(f"buddy for {device.name} found")
@@ -796,7 +851,9 @@ class DobissAPI:
                     except ValueError:
                         logger.exception("dobiss monitor exception")
                     except asyncio.exceptions.CancelledError:
-                        logger.debug("websocket connection cancelled - we must be stopping")
+                        logger.debug(
+                            "websocket connection cancelled - we must be stopping"
+                        )
                         self._stop_monitoring = True
                         break
                     except Exception:
