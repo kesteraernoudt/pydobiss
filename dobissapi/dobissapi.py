@@ -749,9 +749,15 @@ class DobissAPI:
                                 )
                             )
                         # other things connected to dobiss NXT directly?? In demo there are screens etc
-                        elif str(subject["icons_id"]) == str(DOBISS_UP) or str(
-                            subject["icons_id"]
-                        ) == str(DOBISS_DOWN):
+                        elif (
+                            str(subject["icons_id"]) == str(DOBISS_UP)
+                            or str(subject["icons_id"]) == str(DOBISS_DOWN)
+                            or str(subject["icons_id"]) == str(DOBISS_GARAGE)
+                            or str(subject["icons_id"]) == str(DOBISS_DOOR)
+                            or str(subject["icons_id"]) == str(DOBISS_GATE)
+                            or str(subject["icons_id"]) == str(DOBISS_VENTILATION)
+                            or str(subject["icons_id"]) == str(DOBISS_HEATING)
+                        ):
                             new_devices.append(
                                 DobissSwitch(self, subject, group["group"]["name"])
                             )
