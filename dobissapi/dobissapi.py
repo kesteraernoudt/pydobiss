@@ -242,8 +242,8 @@ class DobissEntity:
                 #  self.groupname, self.address, self.channel, self.dimmable))
             # else:
             #    logger.debug("{} not found in update".format(self.name))
-        except Exception:
-            logger.exception("Error trying to update {}".format(self.name))
+        except Exception as error:
+            logger.exception(f"Error trying to update {self.name}: {repr(error)}")
 
     async def update(self):
         """Fetch new state data for this entity.
@@ -525,8 +525,8 @@ class DobissAPI:
             ) as response:
                 if response and response.status == 200:
                     auth_ok = True
-        except Exception:
-            logger.exception("Äuthenticating Dobiss failed")
+        except Exception as error:
+            logger.exception(f"Äuthenticating Dobiss failed: {repr(error)}")
         finally:
             await self._session.close()
         return auth_ok
@@ -542,8 +542,8 @@ class DobissAPI:
                     logger.debug(f"apikey response: {apikey_data}")
                     self._secret = apikey_data["jwt_secret"]
                     get_apikey_ok = True
-        except Exception:
-            logger.exception("Get APIKey Dobiss failed")
+        except Exception as error:
+            logger.exception(f"Get APIKey Dobiss failed: {repr(error)}")
         finally:
             await self._session.close()
         return get_apikey_ok
@@ -849,26 +849,28 @@ class DobissAPI:
                         logger.debug(f"Status update pushed: {response}")
                         if response is not None:
                             await self.update_from_status(response)
-                    except TypeError:
-                        logger.exception("dobiss monitor exception")
+                    except TypeError as error:
+                        logger.exception(f"dobiss monitor exception: {repr(error)}")
                         if not ws.closed:
                             await ws.close()
                         break
-                    except ValueError:
-                        logger.exception("dobiss monitor exception")
-                    except asyncio.exceptions.CancelledError:
+                    except ValueError as error:
+                        logger.exception(f"dobiss monitor exception: {repr(error)}")
+                    except asyncio.exceptions.CancelledError as error:
                         logger.debug(
-                            "websocket connection cancelled - we must be stopping"
+                            f"websocket connection cancelled - we must be stopping: {repr(error)}"
                         )
                         self._stop_monitoring = True
                         break
-                    except Exception:
-                        logger.exception("Status update exception")
+                    except Exception as error:
+                        logger.exception(f"Status update exception: {repr(error)}")
                         if not ws.closed:
                             await ws.close()
                         break
-            except Exception:
-                logger.exception("Failed to connect, waiting a bit before retrying")
+            except Exception as error:
+                logger.exception(
+                    f"Failed to connect, waiting a bit before retrying: {repr(error)}"
+                )
                 await asyncio.sleep(10)
 
     def stop_monitoring(self):
