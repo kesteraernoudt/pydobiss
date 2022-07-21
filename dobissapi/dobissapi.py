@@ -844,7 +844,12 @@ class DobissAPI:
                 ws = await self._session.ws_connect(self._ws_url, headers=headers)
                 while not self._stop_monitoring:
                     try:
-                        response = await ws.receive_json()
+                        import json
+
+                        data = await ws.receive_str()
+                        logger.debug(f"Received websocket communication: {data}")
+                        response = json.loads(data)
+                        # response = await ws.receive_json()
                         # logger.debug("received ws message")
                         logger.debug(f"Status update pushed: {response}")
                         if response is not None:
