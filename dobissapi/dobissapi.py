@@ -826,6 +826,9 @@ class DobissAPI:
         return None
 
     async def update_from_status(self, status, force=False):
+        # looks like in dobiss NXT 3.20 status updates for the NXT module can come it without address.
+        if type(status) == list and len(status) == 1:
+            status = {"0": status[0]}
         for e in self._devices:
             await e.update_from_global(status, force)
 
