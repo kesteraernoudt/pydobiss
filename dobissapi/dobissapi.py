@@ -263,13 +263,17 @@ class DobissOutput(DobissEntity):
         else:
             await self.turn_on()
 
-    async def turn_on(self, brightness=100, delayon=None, delayoff=None):
+    async def turn_on(
+        self, brightness=100, delayon=None, delayoff=None, from_pir=False
+    ):
         """Instruct the entity to turn on.
         You can skip the brightness part if your entity does not support
         brightness control.
         """
         if self._dimmable:
             value = brightness
+        elif from_pir:
+            value = 9
         else:
             value = 1
         await self._dobiss.action(
