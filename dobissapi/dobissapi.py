@@ -762,9 +762,16 @@ class DobissAPI:
                             or str(subject["icons_id"]) == str(DOBISS_VENTILATION)
                             or str(subject["icons_id"]) == str(DOBISS_HEATING)
                         ):
-                            new_devices.append(
-                                DobissSwitch(self, subject, group["group"]["name"])
-                            )
+                            if subject["dimmable"] is not None:
+                                new_devices.append(
+                                    DobissAnalogOutput(
+                                        self, subject, group["group"]["name"]
+                                    )
+                                )
+                            else:
+                                new_devices.append(
+                                    DobissSwitch(self, subject, group["group"]["name"])
+                                )
         for dev in new_devices:
             existing_dev = self.get_device_by_id(dev.object_id)
             if existing_dev:
