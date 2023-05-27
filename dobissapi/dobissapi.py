@@ -485,6 +485,16 @@ class DobissAPI:
         self._callbacks = set()
         self._session = None
         self._temp_calendars = []
+        self._websocket_timeout = None
+
+    @property
+    def websocket_timeout(self):
+        """The timout used by the websocket connection to restart connection"""
+        return self._websocket_timeout
+
+    @websocket_timeout.setter
+    def websocket_timeout(self, value):
+        self._websocket_timeout = value
 
     @property
     def session(self):
@@ -860,7 +870,7 @@ class DobissAPI:
                     try:
                         import json
 
-                        data = await ws.receive_str()
+                        data = await ws.receive_str(timeout=self._websocket_timeout)
                         logger.debug(f"Received websocket communication: {data}")
                         # response = await ws.receive_json()
                         if data:
@@ -868,6 +878,13 @@ class DobissAPI:
                             logger.debug(f"Status update pushed: {response}")
                             if response is not None:
                                 await self.update_from_status(response)
+                    except TimeoutError as error:
+                        logger.exception(
+                            f"dobiss monitor timeout exception: {repr(error)}"
+                        )
+                        if not ws.closed:
+                            await ws.close()
+                        break
                     except TypeError as error:
                         logger.exception(f"dobiss monitor exception: {repr(error)}")
                         if not ws.closed:

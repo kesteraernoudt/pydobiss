@@ -7,7 +7,7 @@ with open("README.md") as f:
 
 setup(
     name="pydobiss",
-    version="0.1.50",
+    version="0.1.52",
     description="python interface to the dobiss developer api",
     long_description=readme,
     long_description_content_type="text/markdown",
