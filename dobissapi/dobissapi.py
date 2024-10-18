@@ -865,7 +865,7 @@ class DobissAPI:
             headers = {"Authorization": "Bearer " + self.get_token()}
             self.start_session()
             try:
-                ws = await self._session.ws_connect(self._ws_url, headers=headers)
+                ws = await self._session.ws_connect(self._ws_url, protocols=("wamp"), headers=headers)
                 while not self._stop_monitoring:
                     try:
                         import json
