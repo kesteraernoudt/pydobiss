@@ -710,6 +710,8 @@ class DobissAPI:
                         new_devices.append(
                             DobissLight(self, subject, group["group"]["name"])
                         )
+                    elif str(subject["icons_id"]) in map(str, [DOBISS_RED, DOBISS_GREEN, DOBISS_BLUE, DOBISS_WHITE]):
+                        new_devices.append(DobissLight(self, subject, group["group"]["name"]))
                     elif str(subject["type"]) == str(
                         DOBISS_TYPE_ANALOG
                     ):  # other items connected to a 0-10V output
