@@ -1,0 +1,27 @@
+name: Publish to PyPI
+
+on:
+  push:
+    tags:
+      - 'v*' # Triggers on tags like v0.1.0, v1.0.0
+
+jobs:
+  release:
+    name: Publish to PyPI
+    runs-on: ubuntu-latest
+    environment: pypi # Matches the environment name configured on PyPI
+    permissions:
+      id-token: write # Required for Trusted Publishing
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Python and dependencies
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x' # Specify your desired Python version
+      - name: Install build tools
+        run: pip install build
+      - name: Build distribution packages
+        run: python -m build
+      - name: Publish package to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
