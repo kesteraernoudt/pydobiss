@@ -210,6 +210,15 @@ class DobissEntity:
                 val = None
             attributes = self._attributes.copy()
             attributes.update(status)
+        elif self.address == DOBISS_TYPE_AUDIO:
+            val = self._value
+            if isinstance(status, dict):
+                attributes = self._attributes.copy()
+                attributes.update(status)
+                if "status" in status:
+                    val = int(status["status"])
+            else:
+                val = int(status)
         else:
             if type(status) == dict:
                 val = int(status["status"])
@@ -458,6 +467,95 @@ class DobissLightSensor(DobissSensor):
         self._unit = "%"
 
 
+class DobissAudioZone(DobissEntity):
+    """a dobiss Audio Zone"""
+
+    def _audio_sources(self):
+        return self._dobiss.get_audio_sources(self._channel)
+
+    @property
+    def power_status(self):
+        return self._value
+
+    @property
+    def volume(self):
+        volume = self.attributes.get("volume")
+        if volume is None:
+            volume = self.attributes.get("value")
+        if volume is None:
+            return None
+        try:
+            return int(volume)
+        except (TypeError, ValueError):
+            return None
+
+    @property
+    def volume_level(self):
+        volume = self.volume
+        if volume is None:
+            return None
+        return max(0, min(volume, 100)) / 100
+
+    @property
+    def source(self):
+        source = self.attributes.get("source")
+        if source is None:
+            return None
+        try:
+            return int(source)
+        except (TypeError, ValueError):
+            return None
+
+    @property
+    def source_name(self):
+        source = self.source
+        if source is None:
+            return None
+        return self._audio_sources().get(str(source))
+
+    @property
+    def source_list(self):
+        return list(self._audio_sources().values())
+
+    @property
+    def source_ids(self):
+        return list(self._audio_sources().keys())
+
+    async def turn_on(self):
+        await self._dobiss.action(self._address, self._channel, 1)
+
+    async def turn_off(self):
+        await self._dobiss.action(self._address, self._channel, 0)
+
+    async def set_volume(self, volume):
+        if volume is None:
+            return
+        await self._dobiss.action(self._address, self._channel, 1, int(volume))
+
+    async def set_source(self, source):
+        if source is None:
+            return
+        await self._dobiss.action(self._address, self._channel, 1, option2=int(source))
+
+    async def set_source_by_name(self, source_name):
+        if source_name is None:
+            return
+        source_id = self._dobiss.get_audio_source_id(self._channel, source_name)
+        if source_id is not None:
+            await self.set_source(source_id)
+
+    async def set_volume_source(self, volume=None, source=None):
+        if volume is None and source is None:
+            return
+        await self._dobiss.action(
+            self._address,
+            self._channel,
+            1,
+            option1=int(volume) if volume is not None else None,
+            option2=int(source) if source is not None else None,
+        )
+
+
 class DobissAPI:
     def __init__(self, secret, host, secure: bool):
         """Initialize dobiss api object"""
@@ -485,6 +583,7 @@ class DobissAPI:
         self._callbacks = set()
         self._session = None
         self._temp_calendars = []
+        self._audio_sources = {}
         self._websocket_timeout = None
 
     @property
@@ -508,6 +607,23 @@ class DobissAPI:
     @property
     def temp_calendars(self):
         return self._temp_calendars
+
+    @property
+    def audio_sources(self):
+        return self._audio_sources
+
+    def get_audio_sources(self, channel):
+        if self._audio_sources is None:
+            return {}
+        return self._audio_sources.get(str(channel), {})
+
+    def get_audio_source_id(self, channel, source_name):
+        if source_name is None:
+            return None
+        for source_id, name in self.get_audio_sources(channel).items():
+            if name == source_name:
+                return source_id
+        return None
 
     @property
     def calendars(self):
@@ -693,6 +809,7 @@ class DobissAPI:
 
     def _get_dobiss_devices(self, discovered_devices):
         self._temp_calendars = discovered_devices["temp_calendars"]
+        self._audio_sources = discovered_devices.get("audio_sources", {})
         new_devices = []
         for group in discovered_devices["groups"]:
             for subject in group["subjects"]:
@@ -745,6 +862,10 @@ class DobissAPI:
                     ):  # automations
                         new_devices.append(
                             DobissAutomation(self, subject, group["group"]["name"])
+                        )
+                    elif str(subject["type"]) == str(DOBISS_TYPE_AUDIO):  # audio zones
+                        new_devices.append(
+                            DobissAudioZone(self, subject, group["group"]["name"])
                         )
                     # elif str(subject["type"]) == "203": # logical conditions
                     # 	new_devices.append(DobissSensor(self, subject, group["group"]["name"]))
