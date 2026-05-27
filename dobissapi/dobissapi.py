@@ -63,6 +63,20 @@ ICON_FROM_DOBISS = {
     DOBISS_FLAG: "mdi:flag",
 }
 
+RGBW_COLOR_BY_ICON_ID = {
+    DOBISS_RED: "red",
+    DOBISS_GREEN: "green",
+    DOBISS_BLUE: "blue",
+    DOBISS_WHITE: "white",
+}
+
+RGBW_ICON_SEQUENCE = (
+    (DOBISS_RED, "red", 0),
+    (DOBISS_GREEN, "green", 1),
+    (DOBISS_BLUE, "blue", 2),
+    (DOBISS_WHITE, "white", 3),
+)
+
 # DOBISS type mapping
 DOBISS_TYPE_NXT = 0
 DOBISS_TYPE_INPUT = 1
@@ -691,109 +705,338 @@ class DobissAPI:
             self._url + "action", headers=headers, json=data
         )
 
+    def _subject_int(self, subject, key):
+        try:
+            return int(subject[key])
+        except (KeyError, TypeError, ValueError):
+            return None
+
+    def _is_group_zero_record(self, record):
+        return str(record["group_id"]) == "0"
+
+    def _record_identity(self, record):
+        return (
+            str(record["group_id"]),
+            record["group_name"],
+            record["name"],
+            record["address"],
+            record["channel"],
+            record["icons_id"],
+        )
+
+    def _record_label(self, record):
+        return (
+            f"{record['name']} (group_id={record['group_id']}, "
+            f"group_name={record['group_name']}, address={record['address']}, "
+            f"channel={record['channel']}, icons_id={record['icons_id']})"
+        )
+
+    def _log_raw_discovered_subject(self, record):
+        subject = record["subject"]
+        message = (
+            "Raw discovered subject: group_id=%s group_name=%s name=%s "
+            "address=%s channel=%s type=%s icons_id=%s dimmable=%s"
+        )
+        args = [
+            record["group_id"],
+            record["group_name"],
+            record["name"],
+            record["address"],
+            record["channel"],
+            record["type"],
+            record["icons_id"],
+            subject.get("dimmable"),
+        ]
+        if "tags" in subject:
+            message += " tags=%s"
+            args.append(subject.get("tags"))
+        if "settings" in subject:
+            message += " settings=%s"
+            args.append(subject.get("settings"))
+        logger.debug(message, *args)
+
+    def _collect_discovered_subjects(self, discovered_devices):
+        raw_subjects = []
+        subjects_by_output = {}
+        for group in discovered_devices["groups"]:
+            group_info = group["group"]
+            group_id = group_info["id"]
+            group_name = group_info["name"]
+            for subject in group["subjects"]:
+                record = {
+                    "group_id": group_id,
+                    "group_name": group_name,
+                    "name": subject.get("name"),
+                    "address": self._subject_int(subject, "address"),
+                    "channel": self._subject_int(subject, "channel"),
+                    "type": self._subject_int(subject, "type"),
+                    "icons_id": self._subject_int(subject, "icons_id"),
+                    "subject": subject,
+                }
+                raw_subjects.append(record)
+                self._log_raw_discovered_subject(record)
+
+                output_key = (record["address"], record["channel"])
+                if None not in output_key:
+                    existing_records = subjects_by_output.setdefault(output_key, [])
+                    if existing_records:
+                        logger.debug(
+                            "Duplicate raw address/channel discovered: "
+                            "address=%s channel=%s existing=%s incoming=%s",
+                            record["address"],
+                            record["channel"],
+                            [self._record_label(item) for item in existing_records],
+                            self._record_label(record),
+                        )
+                    existing_records.append(record)
+        return raw_subjects
+
+    def _pick_preferred_rgbw_record(self, records):
+        for record in records:
+            if not self._is_group_zero_record(record):
+                return record
+        if records:
+            return records[0]
+        return None
+
+    def _get_rgbw_candidates(self, raw_subjects):
+        color_records_by_position = {}
+        red_base_by_position = {}
+
+        for record in raw_subjects:
+            if record["address"] is None or record["channel"] is None:
+                continue
+            if record["icons_id"] not in RGBW_COLOR_BY_ICON_ID:
+                continue
+
+            color_key = (record["address"], record["channel"], record["icons_id"])
+            color_records_by_position.setdefault(color_key, []).append(record)
+
+            if record["icons_id"] == DOBISS_RED:
+                base_key = (record["address"], record["channel"])
+                current_base = red_base_by_position.get(base_key)
+                if current_base is None or (
+                    self._is_group_zero_record(current_base)
+                    and not self._is_group_zero_record(record)
+                ):
+                    red_base_by_position[base_key] = record
+
+        candidates = []
+        for address, red_channel in sorted(red_base_by_position):
+            base = red_base_by_position[(address, red_channel)]
+            channels = {"red": base}
+            for icon_id, color, offset in RGBW_ICON_SEQUENCE[1:]:
+                records = color_records_by_position.get(
+                    (address, red_channel + offset, icon_id), []
+                )
+                channels[color] = self._pick_preferred_rgbw_record(records)
+
+            missing_required = [
+                color for color in ("green", "blue") if channels[color] is None
+            ]
+            missing_optional = [
+                color for color in ("white",) if channels[color] is None
+            ]
+            is_candidate = not missing_required
+            if is_candidate and channels["white"] is not None:
+                kind = "RGBW"
+            elif is_candidate:
+                kind = "RGB"
+            else:
+                kind = "partial"
+
+            candidates.append(
+                {
+                    "address": address,
+                    "red_channel": red_channel,
+                    "base": base,
+                    "channels": channels,
+                    "missing_required": missing_required,
+                    "missing_optional": missing_optional,
+                    "is_candidate": is_candidate,
+                    "kind": kind,
+                }
+            )
+
+        self._log_rgbw_candidate_results(candidates)
+        return candidates
+
+    def _log_rgbw_candidate_results(self, candidates):
+        if not candidates:
+            logger.debug(
+                "RGB/RGBW candidate detection: no red/main channel subjects found"
+            )
+            return
+
+        for candidate in candidates:
+            available_channels = {}
+            for color, record in candidate["channels"].items():
+                if record is not None:
+                    available_channels[color] = self._record_label(record)
+
+            consecutive_channels = [
+                candidate["red_channel"] + offset
+                for _, _, offset in RGBW_ICON_SEQUENCE
+            ]
+            base_source = (
+                "non-group-0"
+                if not self._is_group_zero_record(candidate["base"])
+                else "group-0 fallback"
+            )
+            if candidate["is_candidate"]:
+                logger.debug(
+                    "RGB/RGBW candidate detected: kind=%s address=%s "
+                    "consecutive_channels=%s base=%s base_source=%s "
+                    "available=%s missing_optional=%s",
+                    candidate["kind"],
+                    candidate["address"],
+                    consecutive_channels,
+                    self._record_label(candidate["base"]),
+                    base_source,
+                    available_channels,
+                    candidate["missing_optional"],
+                )
+            else:
+                logger.debug(
+                    "RGB/RGBW candidate rejected: address=%s "
+                    "consecutive_channels=%s base=%s base_source=%s "
+                    "available=%s missing_required=%s missing_optional=%s",
+                    candidate["address"],
+                    consecutive_channels,
+                    self._record_label(candidate["base"]),
+                    base_source,
+                    available_channels,
+                    candidate["missing_required"],
+                    candidate["missing_optional"],
+                )
+
+    def _get_rgbw_metadata_identities(self, candidates):
+        identities = set()
+        for candidate in candidates:
+            if not candidate["is_candidate"]:
+                continue
+            for record in candidate["channels"].values():
+                if record is not None and self._is_group_zero_record(record):
+                    identities.add(self._record_identity(record))
+        return identities
+
+    def _create_device_from_subject(self, subject, group_name):
+        if str(subject["icons_id"]) == str(DOBISS_LIGHT) or str(
+            subject["icons_id"]
+        ) == str(
+            DOBISS_TABLELIGHT
+        ):  # check for lights
+            return DobissLight(self, subject, group_name)
+        elif str(subject["icons_id"]) in map(
+            str, [DOBISS_RED, DOBISS_GREEN, DOBISS_BLUE, DOBISS_WHITE]
+        ):
+            return DobissLight(self, subject, group_name)
+        elif str(subject["type"]) == str(
+            DOBISS_TYPE_ANALOG
+        ):  # other items connected to a 0-10V output
+            return DobissAnalogOutput(self, subject, group_name)
+        elif str(subject["type"]) == str(
+            DOBISS_TYPE_RELAIS
+        ):  # other items connected to a relais
+            return DobissSwitch(self, subject, group_name)
+        elif str(subject["type"]) == str(DOBISS_TYPE_INPUT):  # status input
+            return DobissBinarySensor(self, subject, group_name)
+        elif str(subject["type"]) == str(DOBISS_TYPE_FLAG):  # flags
+            return DobissFlag(self, subject, group_name)
+        elif str(subject["type"]) == str(DOBISS_TYPE_SCENARIO):  # scenarios
+            return DobissScenario(self, subject, group_name)
+        elif str(subject["type"]) == str(DOBISS_TYPE_AUTOMATION):  # automations
+            return DobissAutomation(self, subject, group_name)
+        # elif str(subject["type"]) == "203": # logical conditions
+        #     return DobissSensor(self, subject, group_name)
+        elif (
+            str(subject["type"]) == str(DOBISS_TYPE_TEMPERATURE)
+            and subject["name"] != "All zones"
+        ):  # temperature
+            return DobissTempSensor(self, subject, group_name)
+        elif str(subject["type"]) == str(
+            DOBISS_TYPE_NXT
+        ):  # lightcell or input contact
+            if str(subject["icons_id"]) == str(DOBISS_LIGHTSENSOR):
+                return DobissLightSensor(self, subject, group_name)
+            elif str(subject["icons_id"]) == str(DOBISS_INPUTSTATUS):
+                return DobissBinarySensor(self, subject, group_name)
+            # other things connected to dobiss NXT directly?? In demo there are screens etc
+            elif (
+                str(subject["icons_id"]) == str(DOBISS_UP)
+                or str(subject["icons_id"]) == str(DOBISS_DOWN)
+                or str(subject["icons_id"]) == str(DOBISS_GARAGE)
+                or str(subject["icons_id"]) == str(DOBISS_DOOR)
+                or str(subject["icons_id"]) == str(DOBISS_GATE)
+                or str(subject["icons_id"]) == str(DOBISS_VENTILATION)
+                or str(subject["icons_id"]) == str(DOBISS_HEATING)
+            ):
+                if subject["dimmable"] is not None:
+                    return DobissAnalogOutput(self, subject, group_name)
+                return DobissSwitch(self, subject, group_name)
+        return None
+
     def _get_dobiss_devices(self, discovered_devices):
         self._temp_calendars = discovered_devices["temp_calendars"]
         new_devices = []
-        for group in discovered_devices["groups"]:
-            for subject in group["subjects"]:
+        raw_subjects = self._collect_discovered_subjects(discovered_devices)
+        rgbw_candidates = self._get_rgbw_candidates(raw_subjects)
+        rgbw_metadata_identities = self._get_rgbw_metadata_identities(rgbw_candidates)
+
+        for record in raw_subjects:
+            subject = record["subject"]
+            if self._is_group_zero_record(record):
+                if self._record_identity(record) in rgbw_metadata_identities:
+                    reason = "used as RGB/RGBW candidate metadata"
+                else:
+                    reason = "group 0 technical/no-group subject is not exposed"
                 logger.debug(
-                    f"Group {group['group']['id']} Discovered {subject['name']}: addr {subject['address']}; \
-                        channel {subject['channel']}; type {subject['type']}; icon {subject['icons_id']}"
+                    "Skipping group 0 subject %s: %s",
+                    self._record_label(record),
+                    reason,
                 )
-                if group["group"]["id"] != 0:
-                    # skip first group - nothing here which is not visible in one of the other groups below
-                    if str(subject["icons_id"]) == str(DOBISS_LIGHT) or str(
-                        subject["icons_id"]
-                    ) == str(
-                        DOBISS_TABLELIGHT
-                    ):  # check for lights
-                        new_devices.append(
-                            DobissLight(self, subject, group["group"]["name"])
-                        )
-                    elif str(subject["icons_id"]) in map(
-                        str, [DOBISS_RED, DOBISS_GREEN, DOBISS_BLUE, DOBISS_WHITE]
-                    ):
-                        new_devices.append(
-                            DobissLight(self, subject, group["group"]["name"])
-                        )
-                    elif str(subject["type"]) == str(
-                        DOBISS_TYPE_ANALOG
-                    ):  # other items connected to a 0-10V output
-                        new_devices.append(
-                            DobissAnalogOutput(self, subject, group["group"]["name"])
-                        )
-                    elif str(subject["type"]) == str(
-                        DOBISS_TYPE_RELAIS
-                    ):  # other items connected to a relais
-                        new_devices.append(
-                            DobissSwitch(self, subject, group["group"]["name"])
-                        )
-                    elif str(subject["type"]) == str(DOBISS_TYPE_INPUT):  # status input
-                        new_devices.append(
-                            DobissBinarySensor(self, subject, group["group"]["name"])
-                        )
-                    elif str(subject["type"]) == str(DOBISS_TYPE_FLAG):  # flags
-                        new_devices.append(
-                            DobissFlag(self, subject, group["group"]["name"])
-                        )
-                    elif str(subject["type"]) == str(DOBISS_TYPE_SCENARIO):  # scenarios
-                        new_devices.append(
-                            DobissScenario(self, subject, group["group"]["name"])
-                        )
-                    elif str(subject["type"]) == str(
-                        DOBISS_TYPE_AUTOMATION
-                    ):  # automations
-                        new_devices.append(
-                            DobissAutomation(self, subject, group["group"]["name"])
-                        )
-                    # elif str(subject["type"]) == "203": # logical conditions
-                    # 	new_devices.append(DobissSensor(self, subject, group["group"]["name"]))
-                    elif (
-                        str(subject["type"]) == str(DOBISS_TYPE_TEMPERATURE)
-                        and subject["name"] != "All zones"
-                    ):  # temperature
-                        new_devices.append(
-                            DobissTempSensor(self, subject, group["group"]["name"])
-                        )
-                    elif str(subject["type"]) == str(
-                        DOBISS_TYPE_NXT
-                    ):  # lightcell or input contact
-                        if str(subject["icons_id"]) == str(DOBISS_LIGHTSENSOR):
-                            new_devices.append(
-                                DobissLightSensor(self, subject, group["group"]["name"])
-                            )
-                        elif str(subject["icons_id"]) == str(DOBISS_INPUTSTATUS):
-                            new_devices.append(
-                                DobissBinarySensor(
-                                    self, subject, group["group"]["name"]
-                                )
-                            )
-                        # other things connected to dobiss NXT directly?? In demo there are screens etc
-                        elif (
-                            str(subject["icons_id"]) == str(DOBISS_UP)
-                            or str(subject["icons_id"]) == str(DOBISS_DOWN)
-                            or str(subject["icons_id"]) == str(DOBISS_GARAGE)
-                            or str(subject["icons_id"]) == str(DOBISS_DOOR)
-                            or str(subject["icons_id"]) == str(DOBISS_GATE)
-                            or str(subject["icons_id"]) == str(DOBISS_VENTILATION)
-                            or str(subject["icons_id"]) == str(DOBISS_HEATING)
-                        ):
-                            if subject["dimmable"] is not None:
-                                new_devices.append(
-                                    DobissAnalogOutput(
-                                        self, subject, group["group"]["name"]
-                                    )
-                                )
-                            else:
-                                new_devices.append(
-                                    DobissSwitch(self, subject, group["group"]["name"])
-                                )
+                continue
+
+            device = self._create_device_from_subject(subject, record["group_name"])
+            if device is None:
+                logger.debug(
+                    "Ignoring subject %s: no Dobiss entity class mapping",
+                    self._record_label(record),
+                )
+                continue
+
+            logger.debug(
+                "Classified subject %s as %s",
+                self._record_label(record),
+                device.__class__.__name__,
+            )
+            new_devices.append(device)
+
         for dev in new_devices:
             existing_dev = self.get_device_by_id(dev.object_id)
             if existing_dev:
+                logger.debug(
+                    "Merged duplicate address/channel into existing device: "
+                    "object_id=%s address=%s channel=%s existing=%s incoming=%s "
+                    "class=%s",
+                    dev.object_id,
+                    dev.address,
+                    dev.channel,
+                    existing_dev.name,
+                    dev.name,
+                    dev.__class__.__name__,
+                )
                 existing_dev.update_from_discovery(dev)
             else:
                 # a new device - add this to the list
+                logger.debug(
+                    "Added subject as %s: name=%s address=%s channel=%s group=%s",
+                    dev.__class__.__name__,
+                    dev.name,
+                    dev.address,
+                    dev.channel,
+                    dev.groupname,
+                )
                 self._devices.append(dev)
 
         def get_buddy_name(s):
